@@ -116,6 +116,12 @@ export class OAuthController {
   }
 
   @UseGuards(AuthGuard("jwt"))
+  @Get("oauth/grants/stats")
+  grantStats(@Req() req: any) {
+    return this.oauth.grantStats(req.user.id);
+  }
+
+  @UseGuards(AuthGuard("jwt"))
   @Delete("oauth/grants/:id")
   @HttpCode(204)
   revoke(@Param("id") id: string, @Req() req: any) {

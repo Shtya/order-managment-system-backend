@@ -466,6 +466,29 @@ export class OAuthService {
     }));
   }
  
+  async grantStats(userId: string) {
+    const canRead = `:read = ANY(string_to_array(g.scope, ' '))`;
+    const canWrite = `:write = ANY(string_to_array(g.scope, ' '))`;
+
+    const raw = await this.grants
+      .createQueryBuilder("g")
+      .select("COUNT(*)", "total")
+      .addSelect(`COUNT(*) FILTER (WHERE ${canRead} AND NOT ${canWrite})`, "readOnly")
+      .addSelect(`COUNT(*) FILTER (WHERE ${canWrite} AND NOT ${canRead})`, "writeOnly")
+      .addSelect(`COUNT(*) FILTER (WHERE ${canRead} AND ${canWrite})`, "readWrite")
+      .where("g.userId = :userId", { userId })
+      .andWhere("g.revokedAt IS NULL")
+      .setParameters({ read: McpScope.READ, write: McpScope.WRITE })
+      .getRawOne();
+
+    return {
+      total: Number(raw?.total ?? 0),
+      readOnly: Number(raw?.readOnly ?? 0),
+      writeOnly: Number(raw?.writeOnly ?? 0),
+      readWrite: Number(raw?.readWrite ?? 0),
+    };
+  }
+
   async revokeGrant(userId: string, grantId: string) {
     const grant = await this.grants.findOneBy({ id: grantId, userId });
     if (!grant) throw new BadRequestException();
