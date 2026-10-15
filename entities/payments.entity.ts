@@ -163,6 +163,7 @@ export enum TransactionPaymentMethod {
     ETISALAT_CASH = "etisalat_cash",
     WE_PAY = "we_pay",
     INSTA = "insta",
+    WALLET = "wallet",
 
     // Payment Aggregators & Points
     FAWRY = "fawry",

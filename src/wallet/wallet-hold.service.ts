@@ -153,7 +153,7 @@ export class WalletHoldService {
       userId,
       amount: captured,
       purpose: PaymentPurposeEnum.WALLET_WITHDRAWAL,
-      paymentMethod: TransactionPaymentMethod.OTHER,
+      paymentMethod: TransactionPaymentMethod.WALLET,
       number: `BILL-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
       notes,
     });
