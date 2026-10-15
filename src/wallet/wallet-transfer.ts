@@ -158,7 +158,7 @@ export async function executeWalletTransfer(
     userId,
     amount: amountStr,
     purpose,
-    paymentMethod: "other" as TransactionPaymentMethod,
+    paymentMethod: "wallet" as TransactionPaymentMethod,
     notes,
   });
   await manager.query(

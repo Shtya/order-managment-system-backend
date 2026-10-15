@@ -6,10 +6,14 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { SystemRole, User } from "entities/user.entity";
-import { Repository } from "typeorm";
+import { Repository, SelectQueryBuilder } from "typeorm";
 import { DateFilterUtil } from "common/date-filter.util";
 import { generateRandomAlphanumeric, imageSrc } from "common/healpers";
-import { TransactionEntity, TransactionStatus } from "entities/payments.entity";
+import {
+  TransactionCategory,
+  TransactionEntity,
+  TransactionStatus,
+} from "entities/payments.entity";
 import * as ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
 
@@ -22,6 +26,23 @@ export class TransactionsService {
   ) {}
 
   // ✅ Check if user is super admin
+  private applyPurposeAndCategory(
+    qb: SelectQueryBuilder<TransactionEntity>,
+    q?: any,
+  ) {
+    const allowedPurposes = q?.allowedPurposes;
+    if (Array.isArray(allowedPurposes) && allowedPurposes.length > 0) {
+      qb.andWhere("t.purpose IN (:...allowedPurposes)", { allowedPurposes });
+    }
+    const category = String(q?.category ?? "");
+    if (
+      category === TransactionCategory.AI ||
+      category === TransactionCategory.WALLET
+    ) {
+      qb.andWhere("t.category = :category", { category });
+    }
+  }
+
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
   }
@@ -82,14 +103,7 @@ export class TransactionsService {
     if (!this.isSuperAdmin(me)) {
       qb.where("t.userId = :meId", { meId: me.id });
     }
-    const allowedPurposes = q?.allowedPurposes;
-    if (
-      allowedPurposes &&
-      Array.isArray(allowedPurposes) &&
-      allowedPurposes.length > 0
-    ) {
-      qb.andWhere("t.purpose IN (:...allowedPurposes)", { allowedPurposes });
-    }
+    this.applyPurposeAndCategory(qb, q);
 
     // --- Filters ---
     if (q?.status) qb.andWhere("t.status = :status", { status: q.status });
@@ -253,8 +267,9 @@ export class TransactionsService {
 
     // --- منطق الصلاحيات (Role-based access) ---
     if (!this.isSuperAdmin(me)) {
-      qb.where("sub.userId = :meId", { meId: me.id });
+      qb.where("t.userId = :meId", { meId: me.id });
     }
+    this.applyPurposeAndCategory(qb, q);
 
     // --- الفلاتر ---
     if (q?.status) qb.andWhere("t.status = :status", { status: q.status });

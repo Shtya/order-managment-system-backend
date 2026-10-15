@@ -177,8 +177,14 @@ export enum TransactionPaymentMethod {
     TAMARA = "tamara",
 }
 
+export enum TransactionCategory {
+    WALLET = "wallet",
+    AI = "ai",
+}
+
 @Index(["userId", "number"], { unique: true })
 @Index('IDX_TRANSACTION_LATEST_NUMBER', ['userId', 'number', 'id'])
+@Index('IDX_TRANSACTION_USER_CATEGORY_CREATED', ['userId', 'category', 'createdAt'])
 @Entity('transactions')
 export class TransactionEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -221,6 +227,13 @@ export class TransactionEntity {
         default: PaymentPurposeEnum.SUBSCRIPTION_PAYMENT
     })
     purpose: PaymentPurposeEnum; // 👈 Added this
+
+    @Column({
+        type: 'enum',
+        enum: TransactionCategory,
+        default: TransactionCategory.WALLET,
+    })
+    category: TransactionCategory;
 
 
     @ManyToOne(() => UserFeature, { nullable: true, onDelete: 'SET NULL' })

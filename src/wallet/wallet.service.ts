@@ -11,6 +11,7 @@ import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import {
   PaymentPurposeEnum,
+  TransactionCategory,
   TransactionEntity,
   TransactionPaymentMethod,
   TransactionStatus,
@@ -103,6 +104,7 @@ export class WalletService {
       number?: string;
       orderId?: string;
       currency?: string;
+      category?: TransactionCategory;
     },
   ): Promise<TransactionEntity> {
     const number =
@@ -119,6 +121,7 @@ export class WalletService {
       number,
       notes: input.notes,
       orderId: input.orderId,
+      category: input.category ?? TransactionCategory.WALLET,
     } as DeepPartial<TransactionEntity>);
     return manager.save(transaction);
   }
@@ -327,7 +330,7 @@ export class WalletService {
               userId: me.id,
               amount: cost,
               purpose: PaymentPurposeEnum.WALLET_WITHDRAWAL,
-              paymentMethod: TransactionPaymentMethod.OTHER,
+              paymentMethod: TransactionPaymentMethod.WALLET,
               orderId,
               notes: await this.requestTranslations.tAsync(
                 "domains.subscriptions.auto_deduction_for_extra_orders",

@@ -4,6 +4,7 @@ import { dollarNumericToMicros, microsToDollarNumeric } from "common/money/micro
 import { BillingWalletPool } from "entities/billing.entity";
 import {
   PaymentPurposeEnum,
+  TransactionCategory,
   TransactionPaymentMethod,
   Wallet,
 } from "entities/payments.entity";
@@ -156,6 +157,7 @@ export class WalletHoldService {
       paymentMethod: TransactionPaymentMethod.WALLET,
       number: `BILL-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
       notes,
+      category: TransactionCategory.AI,
     });
     return { walletTransactionId: saved.id };
   }
