@@ -3,11 +3,11 @@ import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
-import { McpReadTool, McpUpdateTool } from "../decorators/mcp-tool.decorators";
+import { McpCreateTool, McpReadTool, McpUpdateTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { UpsellsService } from "src/upsells/upsells.service";
-import { UpdateUpsellDto, UpsellHeaderType } from "dto/upsells.dto";
+import { CreateUpsellDto, UpdateUpsellDto, UpsellHeaderType } from "dto/upsells.dto";
 import { isSet, listPaging, parseDto, parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
@@ -35,6 +35,31 @@ const upsellsStatsInput = z.strictObject({
   startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
   range: z.enum(TREND_RANGES).optional().describe(`Quick range. One of: ${TREND_RANGES.join(", ")}. Do not pass together with startDate/endDate.`),
+});
+
+const createUpsellInput = z.strictObject({
+  triggerProductId: uuidField(idDescription("Product whose orders trigger the offer.", TOOL.products.search)),
+  upsellProductId: uuidField(
+    idDescription("Product offered to the customer.", TOOL.products.search, "It must have a main image: the offer is sent with it."),
+  ),
+  upsellSkuId: uuidField(
+    idDescription("Variant of the upsell product: variants[].id of that product.", TOOL.products.search, "Must belong to the upsell product."),
+  ),
+  upsellPrice: z.number().min(0).describe("Offer price for the upsell variant."),
+  expireTimeM: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Minutes the customer has to accept after the offer is sent. Omit for an offer that never expires."),
+  bodyText: z.string().min(1).describe("WhatsApp message body text."),
+  footerText: z.string().min(1).optional().describe("WhatsApp message footer text. Omit for no footer."),
+  buttons: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(3)
+    .describe("Button texts, 1 to 3, in this order."),
+  isActive: z.boolean().optional().describe("Whether the offer is active right away. Default true."),
 });
 
 const updateUpsellInput = z.object({
@@ -152,6 +177,34 @@ export class McpUpsellsTools {
     }));
   }
 
+  @McpCreateTool({
+    name: TOOL.upsells.create,
+    description:
+      `Create a new upsell offer. Required: triggerProductId, upsellProductId, upsellSkuId (variant), upsellPrice, bodyText, buttons (1-3 texts). Optional: expireTimeM, footerText, isActive. ` +
+      `The message header is always an image: the upsell product's main image. Media cannot be uploaded here; if the upsell product has no main image the offer is rejected. ` +
+      `Get product ids and variants[].id from ${ref(TOOL.products.search)}. ` +
+      `The same trigger + upsell product + variant + price combination cannot exist twice (check ${ref(TOOL.upsells.search)} first; edit with ${ref(TOOL.upsells.update)}). No delete.`,
+    parameters: createUpsellInput,
+  })
+  async createUpsell(
+    @Payload() input: z.infer<typeof createUpsellInput>,
+    @McpUser() user: User,
+  ) {
+    const { bodyText, footerText, buttons, ...offer } = input;
+    const parsed = await parseDto(CreateUpsellDto, {
+      ...offer,
+      messageConfig: {
+        headerType: UpsellHeaderType.IMAGE,
+        bodyText,
+        ...(footerText && { footerText }),
+        buttons: buttons.map((text) => ({ text })),
+      },
+    });
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    const created = await this.upsells.create(user, parsed.dto);
+    return toolJson(toUpsellResultDto(await this.upsells.findOne(user, created.id)));
+  }
+
   @McpUpdateTool({
     name: TOOL.upsells.update,
     description:
@@ -159,7 +212,7 @@ export class McpUpsellsTools {
       `Expiry: expireEnabled=false removes it; expireTimeM (minutes) sets it and enables it; expireEnabled=true alone keeps the current minutes. ` +
       `The message header (type, text, media) is never changed by this tool and is kept as is. ` +
       `When changing upsellProductId also send upsellSkuId of one of its variants (from ${ref(TOOL.products.search)} variants[].id). ` +
-      `The same trigger + upsell product + variant + price combination cannot exist twice. No create, no delete.`,
+      `The same trigger + upsell product + variant + price combination cannot exist twice. To add a new offer use ${ref(TOOL.upsells.create)}. No delete.`,
     parameters: updateUpsellInput,
   })
   async updateUpsell(

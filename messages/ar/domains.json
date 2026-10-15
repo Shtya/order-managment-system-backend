@@ -1332,6 +1332,7 @@
     "failed_to_download_header_media_from_url": "فشل تنزيل وسائط رأس القالب من الرابط",
     "trigger_product_not_found": "المنتج الأساسي غير موجود",
     "upsell_product_not_found": "منتج العرض الإضافي غير موجود",
+    "upsell_product_image_required": "منتج العرض الإضافي ليس له صورة رئيسية. ارفع صورة للرسالة أو أضف صورة رئيسية للمنتج أولًا.",
     "sku_not_found_or_not_belong": "SKU غير موجود أو لا ينتمي إلى منتج العرض الإضافي",
     "sku_not_belong_to_upsell_product": "SKU لا ينتمي إلى منتج العرض الإضافي",
     "upsell_already_exists": "يوجد عرض إضافي بالفعل لنفس المنتج الأساسي والمنتج الإضافي و SKU والسعر ({price})",

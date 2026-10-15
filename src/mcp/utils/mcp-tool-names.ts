@@ -118,6 +118,7 @@ export const TOOL = {
   upsells: {
     search: "upsells_search",
     stats: "upsells_stats",
+    create: "upsells_create",
     update: "upsells_update",
   },
   issues: {

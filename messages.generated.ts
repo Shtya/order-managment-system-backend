@@ -1473,6 +1473,7 @@ export type I18nTranslations = {
             "failed_to_download_header_media_from_url": string;
             "trigger_product_not_found": string;
             "upsell_product_not_found": string;
+            "upsell_product_image_required": string;
             "sku_not_found_or_not_belong": string;
             "sku_not_belong_to_upsell_product": string;
             "upsell_already_exists": string;

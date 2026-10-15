@@ -1324,6 +1324,7 @@
     "failed_to_download_header_media_from_url": "Failed to download header media from URL",
     "trigger_product_not_found": "Trigger product not found",
     "upsell_product_not_found": "Upsell product not found",
+    "upsell_product_image_required": "The upsell product has no main image. Upload a header image or add a main image to the product first.",
     "sku_not_found_or_not_belong": "SKU not found or does not belong to the upsell product",
     "sku_not_belong_to_upsell_product": "SKU does not belong to the upsell product",
     "upsell_already_exists": "An upsell already exists for the same trigger product, upsell product, SKU, and price ({price})",

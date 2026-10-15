@@ -9,7 +9,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Brackets, Not, In } from "typeorm";
 import { Upsell, UpsellHistory, UpsellStatus } from "entities/upsells.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
-import { CreateUpsellDto, UpdateUpsellDto } from "dto/upsells.dto";
+import { CreateUpsellDto, UpdateUpsellDto, UpsellHeaderType } from "dto/upsells.dto";
 
 import { WhatsappApiService } from "../whatsapp/services/WhatsappApi.service";
 import * as ExcelJS from "exceljs";
@@ -53,6 +53,20 @@ export class UpsellsService {
     @Inject(forwardRef(() => TagAutomationEvaluator))
     private readonly tagAutomationEvaluator: TagAutomationEvaluator,
   ) {}
+
+  /**
+   * An IMAGE header without uploaded media is sent with the upsell product's
+   * main image (see sendUpsell), so that image must exist.
+   */
+  private requireHeaderImage(messageConfig: any, upsellProduct?: ProductEntity | null) {
+    const headerType = String(messageConfig?.headerType ?? "").toUpperCase();
+    if (headerType !== UpsellHeaderType.IMAGE) return;
+    if (String(messageConfig?.headerUrl ?? "").trim()) return;
+    if (String(upsellProduct?.mainImage ?? "").trim()) return;
+    throw new BadRequestException(
+      this.translations.t("domains.upsells.upsell_product_image_required"),
+    );
+  }
 
   async create(me: any, dto: CreateUpsellDto) {
     const adminId = tenantId(me);
@@ -119,6 +133,7 @@ export class UpsellsService {
 
     // 3. Handle media handle if applicable
     const messageConfig = { ...dto.messageConfig };
+    this.requireHeaderImage(messageConfig, upsellProduct);
     // if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
     //     try {
     //         const accountId = await this.whatsappService.getDefaultAccountId(adminId);
@@ -218,6 +233,10 @@ export class UpsellsService {
     const messageConfig = dto.messageConfig
       ? { ...dto.messageConfig }
       : upsell.messageConfig;
+
+    if (dto.messageConfig || dto.upsellProductId) {
+      this.requireHeaderImage(messageConfig, upsell.upsellProduct);
+    }
 
     // If headerUrl changed, re-upload to Meta
     // if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
