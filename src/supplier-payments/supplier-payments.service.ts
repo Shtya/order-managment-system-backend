@@ -18,7 +18,7 @@ import {
 } from "dto/supplier_payments.dto";
 import { SafesService } from "../safes/safes.service";
 import { tenantId } from "src/category/category.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { ApprovalStatus } from "common/enums";
 import {
   RequestTranslationService,

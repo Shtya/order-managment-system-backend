@@ -200,6 +200,7 @@ export class AudienceService {
       )
       .addSelect("client.id", "clientId")
       .addSelect("client.name", "name")
+      .addSelect("client.email", "email")
       .addSelect("client.profilePicture", "profilePicture")
       .addSelect("client.createdAt", "createdAt")
       .addSelect("phone.id", "customerId")
@@ -679,6 +680,7 @@ export class AudienceService {
 
   private mapRecipientRow(row: any): ClientAudienceRecipient {
     return {
+      email: row.email ?? null,
       name: row.client?.name ?? row.name ?? null,
       clientId: row.clientId,
       customerId: row.customerId ?? null,

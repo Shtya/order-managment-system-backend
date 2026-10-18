@@ -7,8 +7,8 @@ export class EncryptionService {
     private readonly masterKey = process.env.MASTER_ENCRYPTION_KEY;
 
     encrypt(data: string): { ciphertext: string; iv: string; tag: string } {
-        if (this.masterKey.length !== 32) {
-            throw new InternalServerErrorException('MASTER_ENCRYPTION_KEY must be 32 characters.');
+        if (!this.masterKey || Buffer.byteLength(this.masterKey, 'utf8') !== 32) {
+            throw new InternalServerErrorException('MASTER_ENCRYPTION_KEY must be exactly 32 UTF-8 bytes.');
         }
 
         const iv = randomBytes(16); // Unique IV for every encryption
@@ -28,6 +28,9 @@ export class EncryptionService {
     }
 
     decrypt(ciphertext: string, iv: string, tag: string): string {
+        if (!this.masterKey || Buffer.byteLength(this.masterKey, 'utf8') !== 32) {
+            throw new InternalServerErrorException('MASTER_ENCRYPTION_KEY must be exactly 32 UTF-8 bytes.');
+        }
         const decipher = createDecipheriv(
             this.algorithm,
             Buffer.from(this.masterKey),

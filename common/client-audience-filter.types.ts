@@ -120,6 +120,7 @@ export interface ClientAudienceFilter extends ClientAudienceGroup {
   entity: ClientAudienceEntity.CLIENT;
 }
 export interface ClientAudienceRecipient {
+  email?: string | null;
   name: string | null;
   clientId: string;
   customerId: string | null;

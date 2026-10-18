@@ -1,4 +1,4 @@
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { mkdirSync } from "fs";
 import { I18nKey } from "common/translation.service";
 

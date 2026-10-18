@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsEmail,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -24,6 +25,7 @@ import {
   CampaignScheduleMode,
 } from "entities/campaigns.entity";
 import { ClientAudienceFilterDto } from "dto/client-segment.dto";
+import { EmailDocument } from "src/email/email.types";
 
 /** Nested filter trees must not use enableImplicitConversion — it turns rule objects into []. */
 export function toCampaignAudienceFilterDto(value: any) {
@@ -101,14 +103,24 @@ export class CampaignSmsConfigDto {
 }
 
 export class CampaignEmailConfigDto {
-  @IsOptional()
+  @IsUUID()
+  accountId: string;
+
   @IsString()
   @MaxLength(200)
-  subject?: string;
+  subject: string;
+
+  @IsObject()
+  document: EmailDocument;
+
+  @IsString()
+  @MaxLength(1000)
+  businessIdentity: string;
 
   @IsOptional()
   @IsString()
-  body?: string;
+  @MaxLength(300)
+  preheader?: string;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -116,10 +128,15 @@ export class CampaignEmailConfigDto {
 // ──────────────────────────────────────────────────────────────
 
 export class CampaignManualRecipientDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(50)
-  phoneNumber: string;
+  phoneNumber?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
   @IsString()
@@ -168,6 +185,10 @@ export class CampaignProductDto {
 }
 
 export class CampaignExclusionDto {
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+  
   @IsEnum(CampaignExclusionType)
   type: CampaignExclusionType;
 

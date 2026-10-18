@@ -24,7 +24,7 @@ import {
 } from "dto/sms.dto";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { FilterUtil } from "common/crud.service";

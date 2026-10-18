@@ -10,7 +10,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { UnrecoverableError } from "bullmq";
 import { randomBytes, randomInt } from "crypto";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import {
   buildAudienceFileTemplate,
   deleteLocalUploadsFile,
@@ -47,6 +47,8 @@ import {
   CampaignChannel as CampaignChannelProvider,
 } from "./channels/campaign-channel.abstract";
 import { WhatsappCampaignChannel } from "./channels/whatsapp-campaign.channel";
+import { EmailCampaignChannel } from './channels/email-campaign.channel';
+import { EmailDeferredError, normalizeEmail } from 'src/email/email.types';
 import { inspectTemplateOrderLink } from "./campaign-order-url";
 import {
   CreateCampaignDto,
@@ -82,6 +84,7 @@ export class CampaignsService {
     private readonly excludedRepo: Repository<CampaignExcludedRecipientEntity>,
     private readonly translations: TranslationService,
     private readonly whatsappChannel: WhatsappCampaignChannel,
+    private readonly emailChannel: EmailCampaignChannel,
     private readonly manualAudience: ManualCampaignAudience,
     private readonly fileAudience: FileCampaignAudience,
     private readonly filterAudience: FilterCampaignAudience,
@@ -97,6 +100,7 @@ export class CampaignsService {
   ) {
     this.channels = {
       [CampaignChannel.WHATSAPP]: this.whatsappChannel,
+      [CampaignChannel.EMAIL]: this.emailChannel,
     };
     this.audiences = {
       [CampaignAudienceType.MANUAL]: this.manualAudience,
@@ -109,6 +113,14 @@ export class CampaignsService {
   private readonly channels: Record<string, CampaignChannelProvider>;
   private readonly audiences: Record<string, CampaignAudience>;
 
+  private saveCampaignWithAssets(adminId: string, campaign: CampaignEntity) {
+    if (campaign.channel !== CampaignChannel.EMAIL) return this.campaignRepo.save(campaign);
+    return this.campaignRepo.manager.transaction(async manager => {
+      const saved = await manager.getRepository(CampaignEntity).save(campaign);
+      await this.emailChannel.retainSavedAssets(adminId, saved, manager);
+      return saved;
+    });
+  }
   private getChannel(channel: CampaignChannel): CampaignChannelProvider {
     const provider = this.channels[channel];
     if (!provider) {
@@ -134,24 +146,26 @@ export class CampaignsService {
     dto: {
       audienceSegmentId?: string | null;
       audienceFilter?: any;
+      channel?: CampaignChannel;
     },
-    manualEntries?: { phoneNumber: string; name?: string | null }[] | null,
+    manualEntries?: { phoneNumber?: string | null; email?: string | null; name?: string | null }[] | null,
     stagedFilePath?: string | null,
     fileUrl?: string | null,
   ): AudienceSource {
     switch (audienceType) {
       case CampaignAudienceType.MANUAL:
-        return { kind: "manual", entries: manualEntries ?? [] };
+        return { kind: "manual", entries: manualEntries ?? [], channel: dto.channel };
       case CampaignAudienceType.FILE:
         return {
           kind: "file",
+          channel: dto.channel,
           filePath: stagedFilePath ?? undefined,
           fileUrl: fileUrl ?? null,
         };
       case CampaignAudienceType.CUSTOMERS:
-        return { kind: "filter", filter: dto.audienceFilter };
+        return { kind: "filter", filter: dto.audienceFilter, channel: dto.channel };
       case CampaignAudienceType.SEGMENT:
-        return { kind: "segment", segmentId: dto.audienceSegmentId as string };
+        return { kind: "segment", segmentId: dto.audienceSegmentId as string, channel: dto.channel };
       default:
         throw new BadRequestException(
           this.translations.t("domains.campaigns.invalid_audience_type"),
@@ -501,7 +515,7 @@ export class CampaignsService {
     }
     if (q?.search) {
       qb.andWhere(
-        "(recipient.name ILIKE :search OR recipient.phoneNumber ILIKE :search)",
+        "(recipient.name ILIKE :search OR recipient.phoneNumber ILIKE :search OR recipient.email ILIKE :search)",
         { search: `%${q.search}%` },
       );
     }
@@ -650,6 +664,7 @@ export class CampaignsService {
         audienceType === CampaignAudienceType.MANUAL && dto.manualRecipients
           ? (audience as ManualCampaignAudience).buildSnapshot(
             dto.manualRecipients,
+            channelType,
           )
           : null;
 
@@ -675,11 +690,11 @@ export class CampaignsService {
         storedFileUrl = copied;
       }
 
-      const whatsapp = await channel.validateChannelData(adminId, dto);
+      const whatsapp = await channel.validateChannelData(adminId, dto, { actorId: me.id });
 
       this.validateSchedule(dto.scheduleMode, dto.scheduledAt);
       this.validateDelays(dto.delayMinSeconds, dto.delayMaxSeconds);
-      const offer = this.resolveOfferFields(dto, dto.whatsapp);
+      const offer = this.resolveOfferFields(dto, dto.email ? { email: dto.email } : dto.whatsapp);
 
       const campaign = this.campaignRepo.create({
         adminId,
@@ -723,7 +738,7 @@ export class CampaignsService {
         ),
       });
 
-      const saved = await this.campaignRepo.save(campaign);
+      const saved = await this.saveCampaignWithAssets(adminId, campaign);
       fileCommitted = true;
       await this.confirmOrphanFiles(adminId, dto.orphanFileIds);
 
@@ -770,7 +785,7 @@ export class CampaignsService {
         this.translations.t("domains.campaigns.not_found"),
       );
 
-    if (campaign.status !== CampaignStatus.SCHEDULED) {
+    if (campaign.status !== CampaignStatus.DRAFT && campaign.status !== CampaignStatus.SCHEDULED) {
       throw new BadRequestException(
         this.translations.t("domains.campaigns.cannot_edit_active"),
       );
@@ -789,6 +804,7 @@ export class CampaignsService {
     }
 
     const nextAudienceType = dto.audienceType ?? campaign.audienceType;
+    if (channelChanged && nextAudienceType === CampaignAudienceType.MANUAL && dto.manualRecipients === undefined) throw new BadRequestException(this.translations.t("domains.email.channel_change_requires_manual_recipients"));
     const audience = this.getAudience(nextAudienceType);
     const stagedUrl = stagedFile
       ? `/uploads/campaign-audiences/${stagedFile.filename}`
@@ -801,6 +817,7 @@ export class CampaignsService {
         adminId,
         {
           audienceType: nextAudienceType,
+          channel: nextChannelType,
           audienceSegmentId:
             dto.audienceSegmentId !== undefined
               ? dto.audienceSegmentId
@@ -825,6 +842,7 @@ export class CampaignsService {
         manualSnapshot = dto.manualRecipients
           ? (audience as ManualCampaignAudience).buildSnapshot(
             dto.manualRecipients,
+            nextChannelType,
           )
           : null;
         campaign.audienceManualSnapshot = manualSnapshot;
@@ -846,6 +864,7 @@ export class CampaignsService {
           ? dto.audienceSegmentId
           : campaign.audienceSegmentId;
       const audienceTouched =
+        channelChanged ||
         dto.audienceType !== undefined ||
         dto.audienceSegmentId !== undefined ||
         dto.audienceFilter !== undefined ||
@@ -858,6 +877,7 @@ export class CampaignsService {
             nextAudienceType,
             {
               audienceSegmentId: effectiveSegmentId,
+              channel: nextChannelType,
               audienceFilter: effectiveFilter,
             },
             manualSnapshot,
@@ -870,11 +890,11 @@ export class CampaignsService {
 
       // Channel data: full replace when provided, keep existing otherwise.
       // When channel itself changed, new channel data is required.
-      if (dto.whatsapp !== undefined || channelChanged) {
+      if (dto.whatsapp !== undefined || dto.email !== undefined || channelChanged) {
         const whatsapp = await channel.validateChannelData(
           adminId,
-          { whatsapp: dto.whatsapp } as any,
-          { requireData: channelChanged },
+          { whatsapp: dto.whatsapp, email: dto.email } as any,
+          { requireData: true, actorId: me.id },
         );
         campaign.templateId = whatsapp?.templateId ?? null;
         campaign.templateConfigSnapshot = (whatsapp?.snapshot as any) ?? null;
@@ -893,7 +913,7 @@ export class CampaignsService {
       if (dto.description !== undefined) campaign.description = dto.description;
       if (dto.shippingPrice !== undefined) campaign.shippingPrice = dto.shippingPrice;
       const templateSnapshot =
-        dto.whatsapp !== undefined
+        nextChannelType === CampaignChannel.EMAIL ? { email: dto.email || campaign.templateConfigSnapshot } : dto.whatsapp !== undefined
           ? dto.whatsapp
           : campaign.templateConfigSnapshot;
       const offerTouched =
@@ -901,6 +921,7 @@ export class CampaignsService {
         dto.orderReplyFollowupEnabled !== undefined ||
         dto.orderReplyFollowups !== undefined ||
         dto.whatsapp !== undefined ||
+        dto.email !== undefined ||
         dto.products !== undefined;
       if (offerTouched) {
         const offer = this.resolveOfferFields(
@@ -980,7 +1001,7 @@ export class CampaignsService {
         );
       }
 
-      const saved = await this.campaignRepo.save(campaign);
+      const saved = await this.saveCampaignWithAssets(adminId, campaign);
       fileCommitted = true;
       await this.confirmOrphanFiles(adminId, dto.orphanFileIds);
 
@@ -1068,6 +1089,7 @@ export class CampaignsService {
       );
     }
 
+    if (campaign.channel === CampaignChannel.EMAIL && campaign.templateConfigSnapshot?.ownerId !== me.id) throw new BadRequestException(this.translations.t("domains.email.sender_owner_required"));
     await this.getChannel(campaign.channel).assertSendable(adminId, campaign);
 
     const estimated = await this.getAudience(campaign.audienceType).count(
@@ -1117,6 +1139,12 @@ export class CampaignsService {
 
   async resume(me: any, id: string) {
     const adminId = this.adminIdOf(me);
+    const stored = await this.campaignRepo.findOneBy({ id, adminId });
+    if (stored?.channel === CampaignChannel.EMAIL) {
+      if (stored.templateConfigSnapshot?.ownerId !== me.id) throw new BadRequestException(this.translations.t("domains.email.sender_owner_required"));
+      if (await this.recipientRepo.countBy({ campaignId: id, deliveryStatus: CampaignRecipientDeliveryStatus.UNKNOWN })) throw new BadRequestException(this.translations.t("domains.email.unknown_outcome_requires_review"));
+      await this.emailChannel.assertSendable(adminId, stored);
+    }
     const flipped = await this.flipStatus(
       id,
       adminId,
@@ -1170,6 +1198,17 @@ export class CampaignsService {
       CampaignStatus.FAILED,
       CampaignStatus.COMPLETED,
     ];
+    // Failed only because the audience came out empty: no recipient rows exist, so rebuild the audience and start again.
+    if (campaign.status === CampaignStatus.FAILED && campaign.failureReason === "audience_empty") {
+      if (campaign.channel === CampaignChannel.EMAIL && campaign.templateConfigSnapshot?.ownerId !== me.id) throw new BadRequestException(this.translations.t("domains.email.sender_owner_required"));
+      await this.getChannel(campaign.channel).assertSendable(adminId, campaign);
+      const flippedEmpty = await this.flipStatus(id, adminId, [CampaignStatus.FAILED], { status: CampaignStatus.RUNNING, startedAt: new Date(), failedAt: null, failureReason: null, completedAt: null });
+      if (!flippedEmpty) throw new BadRequestException(this.translations.t("domains.campaigns.not_retryable"));
+      await this.campaignQueue.enqueueMaterialize(adminId, id);
+      await this.emitCampaignLive(adminId, id, "status");
+      return { retried: 0, rebuiltAudience: true };
+    }
+    // if (campaign.channel === CampaignChannel.EMAIL) throw new BadRequestException(this.translations.t("domains.email.retry_requires_new_campaign"));
     if (!retryableStatuses.includes(campaign.status)) {
       throw new BadRequestException(
         this.translations.t("domains.campaigns.not_retryable"),
@@ -1291,6 +1330,7 @@ export class CampaignsService {
     return this.toAudienceSource(
       campaign.audienceType,
       {
+        channel: campaign.channel,
         audienceSegmentId: campaign.audienceSegmentId,
         audienceFilter: campaign.audienceFilter,
       },
@@ -1318,10 +1358,11 @@ export class CampaignsService {
     const audience = this.getAudience(campaign.audienceType);
 
     // Re-start rewrites unsent rows only; sent rows are never touched.
-    await this.recipientRepo.delete({
-      campaignId,
-      deliveryStatus: CampaignRecipientDeliveryStatus.PENDING,
-    });
+    if (campaign.channel === CampaignChannel.EMAIL) {
+      await this.recipientRepo.createQueryBuilder().delete().where('"campaignId" = :campaignId AND "deliveryStatus" = :pending', { campaignId, pending: CampaignRecipientDeliveryStatus.PENDING }).andWhere(`NOT EXISTS (SELECT 1 FROM email_messages em WHERE em.request->'source'->>'recipientId' = campaign_recipients.id::text)`).execute();
+    } else {
+      await this.recipientRepo.delete({ campaignId, deliveryStatus: CampaignRecipientDeliveryStatus.PENDING });
+    }
 
     const exclusions = await this.excludedRepo.find({
       where: { campaignId },
@@ -1338,11 +1379,14 @@ export class CampaignsService {
         )
         .filter(Boolean) as string[],
     );
+    const excludedEmails = new Set(exclusions.map(item => normalizeEmail(item.email)).filter(Boolean));
 
     const source = this.toAudienceSourceFromCampaign(campaign);
     const seen = new Set<string>();
     let cursor: any;
     let excluded = 0;
+    const diagnostics: Record<string, number> = {};
+    const skip = (reason: string) => { excluded += 1; diagnostics[reason] = (diagnostics[reason] || 0) + 1; };
     while (true) {
       const live = await this.campaignRepo.findOne({
         where: { id: campaignId },
@@ -1360,15 +1404,19 @@ export class CampaignsService {
         const phoneNumber = normalizeEgyptianPhoneNumber(
           String(record.phoneNumber ?? ""),
         );
-        if (!phoneNumber || seen.has(phoneNumber)) continue;
+        const email = campaign.channel === CampaignChannel.EMAIL ? normalizeEmail(record.email) : null;
+        const destination = campaign.channel === CampaignChannel.EMAIL ? email : phoneNumber;
+        if (!destination || seen.has(destination)) { skip(!destination ? 'missing_destination' : 'duplicate_destination'); continue; }
         if (
           (record.clientId && excludedClientIds.has(record.clientId)) ||
-          excludedPhones.has(phoneNumber)
+          (campaign.channel === CampaignChannel.EMAIL ? excludedEmails.has(email) : excludedPhones.has(phoneNumber))
         ) {
-          excluded += 1;
+          skip('campaign_exclusion');
           continue;
         }
-        seen.add(phoneNumber);
+        const reason = await this.getChannel(campaign.channel).exclusionReason(adminId, { email });
+        if (reason) { skip(reason); continue; }
+        seen.add(destination);
         rows.push(
           this.recipientRepo.create({
             adminId,
@@ -1376,7 +1424,8 @@ export class CampaignsService {
             source: campaign.audienceType,
             customerId: record.customerId ?? null,
             clientId: record.clientId ?? null,
-            phoneNumber,
+            phoneNumber: phoneNumber || null,
+            email,
             name: record.name ?? null,
             accessToken: randomBytes(24).toString("base64url"),
             deliveryStatus: CampaignRecipientDeliveryStatus.PENDING,
@@ -1401,6 +1450,7 @@ export class CampaignsService {
     await this.campaignRepo.update(campaignId, {
       recipientsCount,
       excludedRecipientsCount: excluded,
+      audienceDiagnostics: diagnostics,
     });
     if (!recipientsCount) {
       await this.campaignRepo.update(campaignId, {
@@ -1469,6 +1519,7 @@ export class CampaignsService {
     const campaign = await this.campaignRepo.findOne({
       where: { id: campaignId, adminId },
     });
+    if (campaign?.channel === CampaignChannel.EMAIL && process.env.EMAIL_FEATURE_ENABLED !== 'true') return { action: 'deferral', delayMs: 300_000, campaignId };
     if (!campaign || campaign.status !== CampaignStatus.RUNNING) {
       this.logger.log(
         JSON.stringify({
@@ -1681,14 +1732,22 @@ export class CampaignsService {
 
     const channel = this.getChannel(campaign.channel);
     try {
-      const result = await sendWithSenderSlot(() =>
-        channel.sendRecipient(adminId, campaign, recipient),
-      );
+      const result = campaign.channel === CampaignChannel.EMAIL
+        ? await channel.sendRecipient(adminId, campaign, recipient)
+        : await sendWithSenderSlot(() => channel.sendRecipient(adminId, campaign, recipient));
+      if (result.outcome && result.outcome !== 'accepted') {
+        const deliveryStatus = result.outcome === 'suppressed' ? CampaignRecipientDeliveryStatus.SKIPPED : result.outcome === 'unknown' ? CampaignRecipientDeliveryStatus.UNKNOWN : CampaignRecipientDeliveryStatus.FAILED;
+        await this.recipientRepo.update(recipient.id, { deliveryStatus, messageId: result.providerMessageId, failureReason: result.reason || result.outcome, failedAt: new Date() });
+        if (result.outcome === 'unknown') await this.campaignRepo.update(campaign.id, { status: CampaignStatus.PAUSED, pausedAt: new Date(), failureReason: 'email_send_outcome_unknown' });
+        return { action: 'sent' };
+      }
       recipient.deliveryStatus = CampaignRecipientDeliveryStatus.ACCEPTED;
       recipient.messageId = result.providerMessageId;
       recipient.sentAt = new Date();
-      await this.recipientRepo.save(recipient);
-      await this.campaignRepo.increment({ id: campaign.id }, "sentCount", 1);
+      await this.recipientRepo.manager.transaction(async manager => {
+        const changed = await manager.update(CampaignRecipientEntity, { id: recipient.id, deliveryStatus: CampaignRecipientDeliveryStatus.SENDING }, { deliveryStatus: recipient.deliveryStatus, messageId: recipient.messageId, sentAt: recipient.sentAt });
+        if (changed.affected) await manager.increment(CampaignEntity, { id: campaign.id }, 'sentCount', 1);
+      });
       await this.emitCampaignLive(adminId, campaign.id, "recipient", {
         id: recipient.id,
         deliveryStatus: recipient.deliveryStatus,
@@ -1696,6 +1755,10 @@ export class CampaignsService {
       });
       return { action: "sent" };
     } catch (error) {
+      if (error instanceof EmailDeferredError) {
+        await this.revertSending(recipient.id);
+        return { action: 'park', delayMs: error.delayMs };
+      }
       if (
         error instanceof BadRequestException ||
         error instanceof NotFoundException
@@ -1926,8 +1989,8 @@ export class CampaignsService {
   // Audience file: upload / template / validation / cleanup
   // ──────────────────────────────────────────────────────────────
 
-  async audienceFileTemplate() {
-    const workbook = buildAudienceFileTemplate();
+  async audienceFileTemplate(channel = 'whatsapp') {
+    const workbook = buildAudienceFileTemplate(channel);
     return workbook.xlsx.writeBuffer();
   }
 
@@ -1987,6 +2050,7 @@ export class CampaignsService {
   ) {
     const type = dto.audienceType as CampaignAudienceType;
     await this.getAudience(type).validate(adminId, {
+      channel: dto.channel,
       audienceSegmentId: dto.audienceSegmentId ?? null,
       audienceFilter: dto.audienceFilter ?? null,
       manualRecipients: dto.manualRecipients ?? null,
@@ -2058,7 +2122,7 @@ export class CampaignsService {
   }
 
   private resolveOfferFields(dto: any, whatsapp: any) {
-    const inspect = inspectTemplateOrderLink(whatsapp);
+    const inspect = whatsapp?.email ? { orderLinkAvailable: /\{\{\s*campaign\.orderUrl\s*\}\}/.test(JSON.stringify(whatsapp.email)), qrOnly: false, hasQuickReply: false, quickReplies: [] } : inspectTemplateOrderLink(whatsapp);
     let enablePurchasePage = !!dto.enablePurchasePage;
     if (enablePurchasePage && !inspect.orderLinkAvailable) {
       throw new BadRequestException(
@@ -2161,6 +2225,7 @@ export class CampaignsService {
         campaignId,
         type: item.type,
         clientId: item.clientId ?? null,
+        email: item.type === CampaignExclusionType.EMAIL ? (() => { const email = normalizeEmail(item.email); if (!email) throw new BadRequestException(this.translations.t("domains.email.invalid_address")); return email; })() : null,
         phoneNumber: item.phoneNumber
           ? normalizeEgyptianPhoneNumber(String(item.phoneNumber))
           : null,

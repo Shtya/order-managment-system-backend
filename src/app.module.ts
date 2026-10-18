@@ -85,6 +85,7 @@ import { ClientsModule } from "./clients/clients.module";
 import { ClientSegmentsModule } from "./client-segments/client-segments.module";
 import { AudienceModule } from "./audience/audience.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
+import { EmailModule } from './email/email.module';
 import { AgentsModule } from "./agents/agents.module";
 import { observeConfig, ObserveModule } from "common/observe/bserve.config";
 import { AiDecisionModule } from "./ai-decision/ai-decision.module";
@@ -99,6 +100,7 @@ import { McpModule } from './mcp/mcp.module';
 // const aiEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.AI_MODULE_ENABLED ?? '').toLowerCase());
 @Module({
   imports: [
+    EmailModule,
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,

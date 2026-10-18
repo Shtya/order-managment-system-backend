@@ -19,7 +19,7 @@ import {
 import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { I18nKey, TranslationService } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";

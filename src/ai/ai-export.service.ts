@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { TranslationService } from "../../common/translation.service";
 
 @Injectable()

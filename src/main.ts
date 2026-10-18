@@ -45,10 +45,11 @@ async function bootstrap() {
 
   // CORS + global prefix + validation
   app.enableCors({
-    origin: "*", // Allowed origins
+    // Gmail connection initiation needs a credentialed request to set its OAuth binding cookie.
+    origin: (origin, callback) => callback(null, origin && origin === process.env.FRONTEND_URL?.replace(/\/$/, '') ? origin : '*'),
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
-    allowedHeaders: "*",
+    // Reflect requested headers: a wildcard does not authorize Authorization on credentialed requests.
   });
   app.useGlobalPipes(
     new I18nValidationPipe({

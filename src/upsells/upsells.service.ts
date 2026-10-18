@@ -12,7 +12,7 @@ import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { CreateUpsellDto, UpdateUpsellDto, UpsellHeaderType } from "dto/upsells.dto";
 
 import { WhatsappApiService } from "../whatsapp/services/WhatsappApi.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
 import { OrdersService } from "../orders/services/orders.service";

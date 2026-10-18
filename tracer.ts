@@ -130,9 +130,16 @@ if (env !== 'development') {
             return (
               req.url?.includes('/health') ||
               req.url?.includes('/metrics') ||
+              req.url?.includes('/email/accounts/gmail/callback') ||
+              req.url?.includes('/email/accounts/gmail/authorize') ||
+              req.url?.includes('/email/unsubscribe/') ||
               false
             );
           },
+          ignoreOutgoingRequestHook: (request) => String(request.hostname || request.host || '').includes('oauth2.googleapis.com'),
+        },
+        '@opentelemetry/instrumentation-undici': {
+          ignoreRequestHook: (request) => String(request.origin).includes('oauth2.googleapis.com'),
         },
       }),
     ],

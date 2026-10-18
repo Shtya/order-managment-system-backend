@@ -22,7 +22,7 @@ import {
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import {
   calculateRange,
   calculatePreviousRange,

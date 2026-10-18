@@ -101,9 +101,9 @@ export class SegmentCampaignAudience extends CampaignAudience {
       const phoneNumber = normalizeEgyptianPhoneNumber(
         String(row.phoneNumber ?? ""),
       );
-      if (!phoneNumber) continue;
       records.push({
         phoneNumber,
+        email: row.email,
         name: row.name ?? null,
         clientId: row.clientId ?? null,
         customerId: row.customerId ?? null,
@@ -148,9 +148,9 @@ export class SegmentCampaignAudience extends CampaignAudience {
       const phoneNumber = normalizeEgyptianPhoneNumber(
         String(resolved.phoneNumber ?? ""),
       );
-      if (!phoneNumber) continue;
       records.push({
         phoneNumber,
+        email: (row as any).client?.email,
         name: (row as any).client?.name ?? null,
         clientId: row.clientId ?? null,
         customerId: resolved.customerId ?? row.customerId ?? null,

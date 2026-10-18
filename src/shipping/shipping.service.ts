@@ -27,7 +27,7 @@ import {
   ExternalShipmentLogEntity,
 } from "../../entities/shipping.entity";
 import { DateFilterUtil } from "common/date-filter.util";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 
 import {
   AssignOrderDto,

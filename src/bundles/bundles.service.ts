@@ -15,7 +15,7 @@ import { ProductVariantEntity } from "entities/sku.entity";
 import { CategoryEntity } from "entities/categories.entity";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { CRUD } from "../../common/crud.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { StoresService } from "src/stores/stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { TranslationService } from "common/translation.service";

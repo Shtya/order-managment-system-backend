@@ -11,7 +11,7 @@ import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { ShippingIntegrationEntity } from "entities/shipping.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import { NotificationService } from "src/notifications/notification.service";

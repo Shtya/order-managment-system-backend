@@ -13,7 +13,7 @@ import {
   Injectable,
 } from "@nestjs/common";
 import { CreateOrderDto, CreateReplacementDto } from "dto/order.dto";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { InjectRepository } from "@nestjs/typeorm";
 import { NotificationService } from "src/notifications/notification.service";

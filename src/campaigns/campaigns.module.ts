@@ -17,6 +17,8 @@ import { CampaignsService } from "./campaigns.service";
 import { CampaignWebhookEventsService } from "./campaign-webhook-events.service";
 import { CampaignsController } from "./campaigns.controller";
 import { WhatsappCampaignChannel } from "./channels/whatsapp-campaign.channel";
+import { EmailCampaignChannel } from './channels/email-campaign.channel';
+import { EmailModule } from 'src/email/email.module';
 import { ManualCampaignAudience } from "./audience/manual-campaign.audience";
 import { FileCampaignAudience } from "./audience/file-campaign.audience";
 import { FilterCampaignAudience } from "./audience/filter-campaign.audience";
@@ -29,6 +31,7 @@ import { ClientSettingsModule } from "src/client-settings/client-settings.module
 
 @Module({
   imports: [
+    EmailModule,
     AudienceModule,
     ClientSegmentsModule,
     forwardRef(() => WhatsappModule),
@@ -49,6 +52,7 @@ import { ClientSettingsModule } from "src/client-settings/client-settings.module
   ],
   controllers: [CampaignsController, PublicCampaignOrdersController],
   providers: [
+    EmailCampaignChannel,
     CampaignsService,
     CampaignWebhookEventsService,
     PublicCampaignOrdersService,

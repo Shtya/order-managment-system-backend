@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { CampaignAudienceType } from "entities/campaigns.entity";
 import { TranslationService } from "common/translation.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { normalizeEmail } from 'src/email/email.types';
 import {
   AudienceInput,
   AudiencePage,
@@ -32,23 +33,25 @@ export class ManualCampaignAudience extends CampaignAudience {
       );
     }
     if (input.manualRecipients !== undefined && input.manualRecipients !== null) {
-      this.validateRecipients(input.manualRecipients);
+      this.validateRecipients(input.manualRecipients, input.channel);
     }
   }
 
   // Normalizes + dedups a raw payload into the snapshot stored on the
   // campaign row. Throws on the same rules as validate().
-  buildSnapshot(raw: ManualRecipientInput[]): ManualSnapshotEntry[] {
-    this.validateRecipients(raw);
+  buildSnapshot(raw: ManualRecipientInput[], channel = 'whatsapp'): ManualSnapshotEntry[] {
+    this.validateRecipients(raw, channel);
     const seen = new Set<string>();
     const snapshot: ManualSnapshotEntry[] = [];
     for (const item of raw) {
       const phoneNumber = normalizeEgyptianPhoneNumber(
         String(item?.phoneNumber ?? ""),
       );
-      if (!phoneNumber || seen.has(phoneNumber)) continue;
-      seen.add(phoneNumber);
-      snapshot.push({ phoneNumber, name: item?.name?.trim() || null });
+      const email = normalizeEmail(item.email);
+      const destination = channel === 'email' ? email : phoneNumber;
+      if (!destination || seen.has(destination)) continue;
+      seen.add(destination);
+      snapshot.push({ phoneNumber: phoneNumber || null, ...(channel === 'email' ? { email } : {}), name: item?.name?.trim() || null });
     }
     return snapshot;
   }
@@ -78,6 +81,7 @@ export class ManualCampaignAudience extends CampaignAudience {
     return {
       records: slice.map((entry) => ({
         phoneNumber: entry.phoneNumber,
+        email: entry.email,
         name: entry.name ?? null,
         clientId: null,
         customerId: null,
@@ -87,7 +91,7 @@ export class ManualCampaignAudience extends CampaignAudience {
     };
   }
 
-  private validateRecipients(manual: ManualRecipientInput[]) {
+  private validateRecipients(manual: ManualRecipientInput[], channel = 'whatsapp') {
     if (!Array.isArray(manual) || manual.length === 0) {
       throw new BadRequestException(
         this.translations.t("domains.campaigns.manual_recipients_required"),
@@ -102,6 +106,10 @@ export class ManualCampaignAudience extends CampaignAudience {
       );
     }
     for (const item of manual) {
+      if (channel === 'email') {
+        if (!normalizeEmail(item?.email)) throw new BadRequestException('email.invalid_address');
+        continue;
+      }
       const normalized = normalizeEgyptianPhoneNumber(
         String(item?.phoneNumber ?? ""),
       );

@@ -24,7 +24,7 @@ import {
   TransferFilterDto,
 } from "dto/safe.dto";
 import { tenantId } from "src/category/category.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { formatReferenceMeta } from "common/healpers";
 import { TranslationService } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";

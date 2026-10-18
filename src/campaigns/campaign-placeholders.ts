@@ -1,6 +1,9 @@
+import { messagePlaceholderPattern } from 'common/message-placeholders';
+
 export type CampaignPlaceholderContext = {
   name?: string | null;
   phoneNumber?: string | null;
+  email?: string | null;
   orderToken?: string | null;
   orderUrl?: string | null;
 };
@@ -30,12 +33,12 @@ export function hydrateCampaignPlaceholders(
   input: unknown,
   ctx: CampaignPlaceholderContext,
 ): string {
-  const tokenRe =
-    /\{\{\s*(customer\.(?:name|number)|campaign\.(?:orderToken|orderUrl))\s*\}\}/gi;
+  const tokenRe = messagePlaceholderPattern();
   return rawText(input).replace(tokenRe, (_m, id: string) => {
     const key = String(id).toLowerCase();
     if (key === "customer.name") return placeholderValue(ctx, "name");
     if (key === "customer.number") return placeholderValue(ctx, "number");
+    if (key === "customer.email") return String(ctx.email ?? '').trim() || '-';
     if (key === "campaign.ordertoken") return String(ctx.orderToken ?? "").trim() || "-";
     if (key === "campaign.orderurl") return String(ctx.orderUrl ?? "").trim() || "-";
     return "-";

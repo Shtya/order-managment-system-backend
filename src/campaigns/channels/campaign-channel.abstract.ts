@@ -6,7 +6,7 @@ import {
 import type { CreateCampaignDto } from "dto/campaign.dto";
 
 export type ValidatedCampaignChannelData = {
-  templateId: string;
+  templateId?: string;
   snapshot: Record<string, any>;
 } | null;
 
@@ -15,10 +15,12 @@ export type ValidatedCampaignChannelData = {
 export abstract class CampaignChannel {
   abstract readonly channel: CampaignChannelEnum;
 
+  async exclusionReason(_adminId: string, _recipient: { email?: string | null }): Promise<string | null> { return null; }
+
   abstract validateChannelData(
     adminId: string,
     dto: Pick<CreateCampaignDto, "whatsapp" | "sms" | "email">,
-    opts?: { requireData?: boolean },
+    opts?: { requireData?: boolean; actorId?: string },
   ): Promise<ValidatedCampaignChannelData>;
 
   // Sends one materialized recipient. Throws retryable provider errors
@@ -40,4 +42,6 @@ export abstract class CampaignChannel {
 export type SendRecipientResult = {
   providerMessageId: string;
   cost?: number;
+  outcome?: 'accepted' | 'suppressed' | 'failed' | 'unknown';
+  reason?: string;
 };

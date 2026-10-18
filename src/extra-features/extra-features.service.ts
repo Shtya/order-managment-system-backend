@@ -24,7 +24,7 @@ import { TransactionsService } from "src/transactions/transactions.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { DataSource, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { AssignUserFeatureDto, UpdateFeatureDto } from "dto/feature.dto";
 import {

@@ -16,6 +16,11 @@ import {
 import { HttpArgumentsHost } from 'node_modules/@nestjs/common/interfaces';
 import { OTEL_USER_ATTR } from './observability/otel-user.constants';
 
+function isSensitiveEmailRequest(req: any): boolean {
+  const path = String(req.originalUrl || req.url || '').split('?')[0];
+  return /\/email(?:\/|$)/.test(path) || (path.includes('/campaigns') && (!!req.body?.email || req.body?.channel === 'email' || (typeof req.body?.payload === 'string' && /"email"\s*:/.test(req.body.payload))));
+}
+
 function logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string, systemErorrsService: SystemErorrsService, ctx: HttpArgumentsHost) {
   // Skip logging certain error patterns
   const skipPatterns = [
@@ -30,6 +35,11 @@ function logSystemError(exception: any, req: any, res: any, code: string | undef
 
   const requestPath = (req.originalUrl || req.url || '').split('?')[0];
   if (requestPath.includes('/whatsapp/webhook')) {
+    return;
+  }
+  // OAuth codes, cookies, unsubscribe tokens and email content must not enter error storage/traces.
+  if (isSensitiveEmailRequest(req)) {
+    void systemErorrsService.logError({ userId: req.user?.id || null, adminId: tenantId(req.user) || null, endpoint: requestPath.replace(/\/unsubscribe\/[^/]+/, '/unsubscribe/[redacted]'), method: req.method, errorMessage: 'Email operation failed', errorCode: code || null, httpStatus: exception instanceof HttpException ? exception.getStatus() : 500 });
     return;
   }
 
@@ -171,7 +181,7 @@ export class QueryExceptionFilter implements ExceptionFilter {
     const req = ctx.getRequest<any>();
 
     const code = exception?.driverError?.code as string | undefined;
-    const detail = exception?.driverError?.detail ?? exception?.message;
+    const detail = isSensitiveEmailRequest(req) ? 'Email database operation failed' : exception?.driverError?.detail ?? exception?.message;
 
     // Log the query error
     logSystemError(exception, req, response, code, detail, this.systemErorrsService, ctx);
@@ -282,7 +292,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       ? exception.getResponse()
       : { statusCode: status, message: 'Internal server error' };
 
-    if (isDev && typeof errorResponse === 'object') {
+    if (isDev && !isSensitiveEmailRequest(req) && typeof errorResponse === 'object') {
       errorResponse = {
         ...errorResponse,
         message: (errorResponse as any).message || exception.message || 'Internal server error',

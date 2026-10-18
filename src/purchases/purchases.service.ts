@@ -26,7 +26,7 @@ import {
 } from "entities/safe.entity";
 import * as fs from "fs";
 import * as path from "path";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import {
   RequestTranslationService,
   TranslationService,

@@ -14,7 +14,7 @@ import {
   TransactionEntity,
   TransactionStatus,
 } from "entities/payments.entity";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
 
 @Injectable()

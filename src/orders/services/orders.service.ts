@@ -23,7 +23,7 @@ import {
   SelectQueryBuilder,
 } from "typeorm";
 import axios from "axios";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { getMissingDeductionQuantity } from "../utils/stock-deduction";
 import { isPartiallyReturnedForManifest } from "../utils/return-manifest-status";
 import {

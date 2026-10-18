@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, In, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import { TranslationService } from "common/translation.service";

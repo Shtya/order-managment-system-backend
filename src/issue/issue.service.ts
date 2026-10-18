@@ -32,7 +32,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import { AppGateway } from "common/app.gateway";
 import { CustomerService } from "../customer/customer.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { CreateIssueDto, UpdateIssueDto } from "dto/issue.dto";
 import { ConversationEntity } from "entities/whatsapp.entity";
 import { CustomerEntity } from "entities/customers.entity";

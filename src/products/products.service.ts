@@ -38,7 +38,7 @@ import {
 
 import { CRUD, FilterUtil } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
 import { PurchaseInvoiceItemEntity } from "entities/purchase.entity";
 import { PurchaseReturnInvoiceItemEntity } from "entities/purchase_return.entity";

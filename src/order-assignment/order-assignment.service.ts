@@ -37,7 +37,7 @@ import { User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { Brackets, DataSource, EntityManager, In, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { ProductEntity } from "entities/sku.entity";
 import { CityEntity } from "entities/cities.entity";
 import { ShippingCompanyEntity } from "entities/shipping.entity";

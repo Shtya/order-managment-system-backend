@@ -1,25 +1,29 @@
 import { CampaignAudienceType } from "entities/campaigns.entity";
 
 export type NormalizedAudienceRecipient = {
-  phoneNumber: string;
+  phoneNumber?: string | null;
+  email?: string | null;
   name?: string | null;
   clientId?: string | null;
   customerId?: string | null;
 };
 
 export type ManualRecipientInput = {
-  phoneNumber: string;
+  phoneNumber?: string | null;
+  email?: string | null;
   name?: string;
 };
 
 export type ManualSnapshotEntry = {
-  phoneNumber: string;
+  phoneNumber?: string | null;
+  email?: string | null;
   name?: string | null;
 };
 
 // Everything a provider may need to validate its input. Staged file
 // uploads ride with create/update (atomic); stored urls cover the rest.
 export type AudienceInput = {
+  channel?: string;
   audienceSegmentId?: string | null;
   audienceFilter?: any;
   manualRecipients?: ManualRecipientInput[] | null;
@@ -29,11 +33,11 @@ export type AudienceInput = {
 
 // Resolved source for count/listPage. Manual entries are the normalized
 // snapshot; file resolves to a staged path (create) or stored url.
-export type AudienceSource =
+export type AudienceSource = (
   | { kind: "manual"; entries: ManualSnapshotEntry[] }
   | { kind: "file"; filePath?: string; fileUrl?: string | null }
   | { kind: "filter"; filter: any }
-  | { kind: "segment"; segmentId: string };
+  | { kind: "segment"; segmentId: string }) & { channel?: string };
 
 export type AudiencePage = {
   records: NormalizedAudienceRecipient[];

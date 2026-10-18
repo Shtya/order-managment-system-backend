@@ -4,7 +4,7 @@ import { Repository, Brackets } from "typeorm";
 import { SystemErrorEntity } from "entities/system_erorrs.entity";
 import { tenantId } from "../category/category.service";
 import { isSuperAdmin } from "common/healpers";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 
 @Injectable()

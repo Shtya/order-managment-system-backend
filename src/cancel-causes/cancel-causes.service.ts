@@ -31,7 +31,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { BUSINESS_TZ } from "src/mcp/utils/mcp-date.util";
 import { calculatePreviousRange } from "common/healpers";
 import { TranslationService } from "common/translation.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { endOfDay, startOfMonth, subDays } from "date-fns";
 
 const SORT_WHITELIST = ["sortOrder", "created_at", "name", "updated_at"];

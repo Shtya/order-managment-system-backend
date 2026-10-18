@@ -32,7 +32,7 @@ import {
 } from "dto/agent.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { FilterUtil } from "common/crud.service";
 
 const LIST_PAGE_LIMIT = 20;

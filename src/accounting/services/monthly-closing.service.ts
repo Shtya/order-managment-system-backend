@@ -26,7 +26,7 @@ import { PurchaseReturnInvoiceEntity } from "entities/purchase_return.entity";
 import { SupplierEntity } from "entities/supplier.entity";
 import { ApprovalStatus } from "common/enums";
 import { tenantId } from "src/category/category.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
 import { businessMonthRange, businessYmd } from "src/mcp/utils/mcp-date.util";
 import { FilterUtil } from "common/crud.service";

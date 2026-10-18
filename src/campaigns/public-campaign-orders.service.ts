@@ -20,6 +20,7 @@ import {
   PaymentMethod,
 } from "entities/order.entity";
 import { PublicCampaignOrderSubmitDto } from "dto/public-campaign-order.dto";
+import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { TranslationService } from "common/translation.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
@@ -219,13 +220,16 @@ export class PublicCampaignOrdersService {
       }
 
       const me = { id: adminId, adminId };
+      const checkoutPhone = recipient.phoneNumber || normalizeEgyptianPhoneNumber(dto.phoneNumber || '');
+      if (!checkoutPhone || !/^\d{8,15}$/.test(checkoutPhone))
+         throw new BadRequestException(this.translations.t("domains.email.checkout_phone_required"));
       const order = await this.ordersService.createWithManager(
         manager,
         adminId,
         me,
         {
           customerName: dto.customerName,
-          phoneNumber: recipient.phoneNumber,
+          phoneNumber: checkoutPhone,
           clientId: recipient.clientId || undefined,
           address: dto.address,
           city: dto.city || "",
@@ -267,7 +271,7 @@ export class PublicCampaignOrdersService {
           alreadyOrdered: true,
           orderNumber: order.orderNumber,
           customerName: dto.customerName,
-          phoneNumber: recipient.phoneNumber,
+          phoneNumber: order.phoneNumber,
           address: dto.address,
           city: dto.city,
           cityId: dto.cityId || null,
@@ -346,7 +350,9 @@ export class PublicCampaignOrdersService {
       alreadyOrdered: extras.alreadyOrdered,
       orderNumber: extras.orderNumber || null,
       customerName: extras.customerName,
-      phoneNumber: extras.phoneNumber,
+      requiresCustomerName: !String(extras.customerName || '').trim(),
+      phoneNumber: extras.phoneNumber || '',
+      requiresPhoneNumber: !extras.phoneNumber,
       address: extras.address,
       city: extras.city,
       cityId: extras.cityId,

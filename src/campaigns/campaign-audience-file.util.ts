@@ -1,9 +1,10 @@
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { promises as fs } from "fs";
 import { randomInt } from "crypto";
 import { join, normalize, extname, sep, basename } from "path";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { BadRequestException } from "@nestjs/common";
+import { normalizeEmail } from 'src/email/email.types';
 export const CAMPAIGN_AUDIENCE_UPLOAD_DIR = "./uploads/campaign-audiences";
 export const CAMPAIGN_AUDIENCE_FILE_MAX_BYTES = 5 * 1024 * 1024;
 export const CAMPAIGN_AUDIENCE_FILE_MAX_MB = 5;
@@ -35,7 +36,8 @@ function normalizeHeader(value: unknown): string {
 }
 
 export type AudienceFileRow = {
-  phoneNumber: string;
+  phoneNumber?: string | null;
+  email?: string | null;
   name?: string | null;
 };
 
@@ -94,21 +96,33 @@ export async function duplicateAudienceFile(sourceUrl?: string | null): Promise<
   return `/uploads/campaign-audiences/${fileName}`;
 }
 
-export function buildAudienceFileTemplate(): ExcelJS.Workbook {
+export function buildAudienceFileTemplate(channel = 'whatsapp'): ExcelJS.Workbook {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Audience");
-  sheet.columns = [
-    { header: "phoneNumber", key: "phoneNumber", width: 22 },
-    { header: "name", key: "name", width: 30 },
-  ];
+  const isEmail = channel === 'email';
+  sheet.columns = isEmail
+    ? [
+        { header: 'email', key: 'email', width: 35 },
+        { header: 'name', key: 'name', width: 30 },
+      ]
+    : [
+        { header: "phoneNumber", key: "phoneNumber", width: 22 },
+        { header: "name", key: "name", width: 30 },
+      ];
   sheet.getRow(1).font = { bold: true };
-  sheet.addRow({ phoneNumber: "01001234567", name: "أحمد محمد" });
-  sheet.addRow({ phoneNumber: "01112345678", name: "Sara Ali" });
+  if (isEmail) {
+    sheet.addRow({ email: 'customer@example.com', name: "أحمد محمد" });
+    sheet.addRow({ email: 'sara@example.com', name: "Sara Ali" });
+  } else {
+    sheet.addRow({ phoneNumber: "01001234567", name: "أحمد محمد" });
+    sheet.addRow({ phoneNumber: "01112345678", name: "Sara Ali" });
+  }
   return workbook;
 }
 
 export async function parseAudienceFile(
   diskPath: string,
+  channel = 'whatsapp',
 ): Promise<AudienceFileParseResult> {
   const extension = extname(diskPath).toLowerCase();
   const workbook = new ExcelJS.Workbook();
@@ -126,12 +140,14 @@ export async function parseAudienceFile(
   const headerRow = sheet.getRow(1);
   let phoneIndex = -1;
   let nameIndex = -1;
+  let emailIndex = -1;
   headerRow.eachCell((cell, colNumber) => {
     const key = normalizeHeader(cell.value);
     if (phoneIndex === -1 && PHONE_HEADERS.has(key)) phoneIndex = colNumber;
     if (nameIndex === -1 && NAME_HEADERS.has(key)) nameIndex = colNumber;
+    if (['email', 'emailaddress'].includes(key)) emailIndex = colNumber;
   });
-  if (phoneIndex === -1) throw new BadRequestException("missing_phone_column");
+  if (channel === 'email' ? emailIndex === -1 : phoneIndex === -1) throw new BadRequestException(channel === 'email' ? 'missing_email_column' : 'missing_phone_column');
 
   const rows: AudienceFileRow[] = [];
   let invalidCount = 0;
@@ -141,9 +157,10 @@ export async function parseAudienceFile(
       throw new BadRequestException("too_many_rows");
     }
     const phone = normalizeEgyptianPhoneNumber(
-      String(row.getCell(phoneIndex).value ?? ""),
+      phoneIndex === -1 ? '' : String(row.getCell(phoneIndex).value ?? ""),
     );
-    if (!phone) {
+    const email = emailIndex === -1 ? null : normalizeEmail(row.getCell(emailIndex).text);
+    if (channel === 'email' ? !email : !phone) {
       invalidCount += 1;
       return;
     }
@@ -151,7 +168,7 @@ export async function parseAudienceFile(
       nameIndex === -1
         ? null
         : String(row.getCell(nameIndex).value ?? "").trim() || null;
-    rows.push({ phoneNumber: phone, name });
+    rows.push({ phoneNumber: phone || null, ...(channel === 'email' ? { email } : {}), name });
   });
 
   return { rows, validCount: rows.length, invalidCount };

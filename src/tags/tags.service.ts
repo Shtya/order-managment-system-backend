@@ -16,7 +16,7 @@ import {
 import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 
 @Injectable()
 export class TagsService {

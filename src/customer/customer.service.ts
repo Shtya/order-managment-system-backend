@@ -24,7 +24,7 @@ import { AppGateway } from "common/app.gateway";
 import { deleteFile } from "common/healpers";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { ClientOrderStatsService } from "src/clients/client-order-stats.service";
 import { FilterUtil } from "common/crud.service";
 

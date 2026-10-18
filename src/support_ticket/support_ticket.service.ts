@@ -24,7 +24,7 @@ import {
   TranslationService,
 } from "common/translation.service";
 import { DateFilterUtil } from "common/date-filter.util";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { NotificationType } from "entities/notifications.entity";
 import { NotificationService } from "src/notifications/notification.service";
 import { AppGateway } from "common/app.gateway";

@@ -27,7 +27,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import * as fs from "fs";
 import * as path from "path";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import {
   RequestTranslationService,
   TranslationService,

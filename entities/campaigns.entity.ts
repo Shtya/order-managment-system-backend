@@ -80,6 +80,7 @@ export enum CampaignAudienceType {
 }
 
 export enum CampaignExclusionType {
+    EMAIL = 'email',
     CLIENT = 'client',
     PHONE_NUMBER = 'phone_number',
 }
@@ -90,6 +91,8 @@ export enum CampaignScheduleMode {
 }
 
 export enum CampaignRecipientDeliveryStatus {
+    SKIPPED = 'skipped',
+    UNKNOWN = 'unknown',
     PENDING = 'pending',
     SENDING = 'sending',
     ACCEPTED = 'accepted',
@@ -110,6 +113,11 @@ export type CampaignTemplateConfigSnapshot = Pick<
     | 'locationData'
 > & {
     accountId?: string | null;
+    ownerId?: string;
+    subject?: string;
+    preheader?: string;
+    document?: import('../src/email/email.types').EmailDocument;
+    businessIdentity?: string;
 };
 
 // Per-button automatic reply: one entry per WhatsApp template
@@ -227,7 +235,7 @@ export class CampaignEntity {
     // payload. Consumed once at start/materialize; campaign_recipients
     // is the source of truth afterwards.
     @Column({ type: 'jsonb', nullable: true })
-    audienceManualSnapshot?: { phoneNumber: string; name?: string | null }[] | null;
+    audienceManualSnapshot?: { phoneNumber?: string | null; email?: string | null; name?: string | null }[] | null;
 
     @Column({ type: 'int', default: 0 })
     estimatedRecipientsCount: number;
@@ -237,6 +245,9 @@ export class CampaignEntity {
 
     @Column({ type: 'int', default: 0 })
     excludedRecipientsCount: number;
+
+    @Column({ type: 'jsonb', nullable: true })
+    audienceDiagnostics?: Record<string, number> | null;
 
     // ==========================================
     // Channel message / WhatsApp template
@@ -411,12 +422,16 @@ export class CampaignProductEntity {
     updatedAt: Date;
 }
 
-@Index(['campaignId', 'phoneNumber'], { unique: true })
+@Index(['campaignId', 'phoneNumber'], { unique: true, where: '"email" IS NULL' })
+@Index(['campaignId', 'email'], { unique: true, where: '"email" IS NOT NULL' })
 @Index(['campaignId', 'deliveryStatus', 'createdAt'])
 @Index(['adminId', 'deliveryStatus'])
 @Index(['adminId', 'phoneNumber'])
 @Entity('campaign_recipients')
 export class CampaignRecipientEntity {
+    @Column({ type: 'varchar', length: 254, nullable: true })
+    email?: string | null;
+
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
@@ -462,7 +477,7 @@ export class CampaignRecipientEntity {
     client?: ClientEntity | null;
 
     //snapshot
-    @Column({ type: 'varchar', length: 50 })
+    @Column({ type: 'varchar', length: 50, nullable: true })
     phoneNumber: string;
 
     //snapshot
@@ -551,6 +566,9 @@ export class CampaignRecipientEntity {
 })
 @Entity('campaign_excluded_recipients')
 export class CampaignExcludedRecipientEntity {
+    @Column({ type: 'varchar', length: 254, nullable: true })
+    email?: string | null;
+    
     @PrimaryGeneratedColumn('uuid')
     id: string;
 

@@ -9,6 +9,11 @@ import {
 import { i18nValidationMessage } from "nestjs-i18n";
 
 export class PublicCampaignOrderSubmitDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  phoneNumber?: string;
+  
   @IsString({ message: i18nValidationMessage("validation.is_string") })
   @IsNotEmpty({ message: i18nValidationMessage("validation.is_not_empty") })
   @MinLength(1)

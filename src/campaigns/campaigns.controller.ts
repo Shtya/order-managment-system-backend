@@ -134,8 +134,8 @@ export class CampaignsController {
     "Content-Type",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   )
-  async audienceFileTemplate(@Res() res: Response) {
-    const buffer = await this.service.audienceFileTemplate();
+  async audienceFileTemplate(@Res() res: Response, @Query('channel') channel?: string) {
+    const buffer = await this.service.audienceFileTemplate(channel);
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

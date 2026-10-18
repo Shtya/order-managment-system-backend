@@ -53,6 +53,7 @@ export class FileCampaignAudience extends CampaignAudience {
     const { parsed } = await this.resolveParsed(
       input.stagedFilePath,
       input.fileUrl,
+      input.channel,
     );
     if (parsed.validCount === 0) {
       throw new BadRequestException(
@@ -74,6 +75,7 @@ export class FileCampaignAudience extends CampaignAudience {
     const { parsed } = await this.resolveParsed(
       source.filePath,
       source.fileUrl,
+      source.channel,
     );
     if (parsed.validCount === 0) {
       throw new BadRequestException(
@@ -105,6 +107,7 @@ export class FileCampaignAudience extends CampaignAudience {
     const { parsed } = await this.resolveParsed(
       source.filePath,
       source.fileUrl,
+      source.channel,
     );
     const pageSize = Math.min(2000, Math.max(1, limit ?? PAGE_DEFAULT));
     const offset =
@@ -115,6 +118,7 @@ export class FileCampaignAudience extends CampaignAudience {
     return {
       records: slice.map((row) => ({
         phoneNumber: row.phoneNumber,
+        email: row.email,
         name: row.name ?? null,
         clientId: null,
         customerId: null,
@@ -127,6 +131,7 @@ export class FileCampaignAudience extends CampaignAudience {
   private async resolveParsed(
     stagedFilePath?: string | null,
     fileUrl?: string | null,
+    channel = 'whatsapp',
   ): Promise<{ diskPath: string; parsed: AudienceFileParseResult }> {
     const diskPath =
       stagedFilePath || (fileUrl ? resolveUploadsDiskPath(fileUrl) : null);
@@ -151,7 +156,8 @@ export class FileCampaignAudience extends CampaignAudience {
         }),
       );
     }
-    const cached = this.parseCache.get(diskPath);
+    const cacheKey = `${channel}:${diskPath}`;
+    const cached = this.parseCache.get(cacheKey);
     if (
       cached &&
       cached.mtimeMs === fileStat.mtimeMs &&
@@ -160,11 +166,11 @@ export class FileCampaignAudience extends CampaignAudience {
       return { diskPath, parsed: cached.parsed };
     }
     // Concurrent callers for the same file share one parse.
-    let inflight = this.parseInflight.get(diskPath);
+    let inflight = this.parseInflight.get(cacheKey);
     if (!inflight) {
       const expectedMtimeMs = fileStat.mtimeMs;
       const expectedSize = fileStat.size;
-      inflight = parseAudienceFile(diskPath).then(async (parsed) => {
+      inflight = parseAudienceFile(diskPath, channel).then(async (parsed) => {
         // Discard the result if the file changed mid-parse.
         const fresh = await stat(diskPath).catch(() => null);
         if (
@@ -179,17 +185,17 @@ export class FileCampaignAudience extends CampaignAudience {
           size: expectedSize,
           parsed,
         };
-        this.parseCache.set(diskPath, entry);
+        this.parseCache.set(cacheKey, entry);
         if (this.parseCache.size > PARSE_CACHE_LIMIT) {
           const oldest = this.parseCache.keys().next();
           if (!oldest.done) this.parseCache.delete(oldest.value);
         }
         return entry;
       });
-      this.parseInflight.set(diskPath, inflight);
+      this.parseInflight.set(cacheKey, inflight);
       const forget = () => {
-        if (this.parseInflight.get(diskPath) === inflight) {
-          this.parseInflight.delete(diskPath);
+        if (this.parseInflight.get(cacheKey) === inflight) {
+          this.parseInflight.delete(cacheKey);
         }
       };
       void inflight.then(forget, forget);
@@ -209,6 +215,7 @@ export class FileCampaignAudience extends CampaignAudience {
 
   private mapParseError(error: unknown): BadRequestException {
     const code = error instanceof Error ? error.message : "";
+    if (code === 'missing_email_column') return new BadRequestException(this.translations.t("domains.email.audience_file_missing_email_column"));
     if (code === "missing_phone_column") {
       return new BadRequestException(
         this.translations.t(

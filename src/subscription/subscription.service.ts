@@ -27,7 +27,7 @@ import {
 import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, EntityManager, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import {
   PaymentProviderEnum,

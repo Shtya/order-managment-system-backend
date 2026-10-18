@@ -14,7 +14,7 @@ import {
 } from "entities/product_sync_error.entity";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import {

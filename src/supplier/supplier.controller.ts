@@ -23,7 +23,7 @@ import {
   UpdateSupplierDto,
   UpdateSupplierFinancialsDto,
 } from "dto/supplier.dto";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("suppliers")

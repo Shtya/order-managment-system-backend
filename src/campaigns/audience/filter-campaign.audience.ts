@@ -74,9 +74,9 @@ export class FilterCampaignAudience extends CampaignAudience {
       const phoneNumber = normalizeEgyptianPhoneNumber(
         String(row.phoneNumber ?? ""),
       );
-      if (!phoneNumber) continue;
       records.push({
         phoneNumber,
+        email: row.email,
         name: row.name ?? null,
         clientId: row.clientId ?? null,
         customerId: row.customerId ?? null,

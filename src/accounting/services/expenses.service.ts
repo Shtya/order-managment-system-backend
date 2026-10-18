@@ -14,7 +14,7 @@ import {
 } from "entities/accounting.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { deleteFile } from "common/healpers";
 import { DateFilterUtil } from "common/date-filter.util";
 import {

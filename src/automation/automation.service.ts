@@ -19,7 +19,7 @@ import { Brackets, DataSource, EntityManager, Repository } from "typeorm";
 import { CreateAutomationDto, UpdateAutomationDto } from "dto/automation.dto";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { TriggerDispatcherService } from "./engine/triggerDispatcher.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import { isSuperAdmin, deletePhysicalFiles } from "common/healpers";

@@ -14,7 +14,7 @@ import {
 } from "../../entities/cities.entity";
 
 import { UpdateCityTenantConfigDto } from "dto/cities.dto";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";

@@ -64,7 +64,7 @@ import { CreatePurchaseDto, PurchaseItemDto } from "dto/purchase.dto";
 import { CreateAccountDto } from "dto/safe.dto";
 import { Account, AccountType } from "entities/safe.entity";
 import * as crypto from "crypto";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";

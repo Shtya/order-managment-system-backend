@@ -28,7 +28,7 @@ import { FilterUtil } from "common/crud.service";
 import { TranslationService } from "common/translation.service";
 import { CustomerService } from "../customer/customer.service";
 import { deleteFile } from "common/healpers";
-import * as ExcelJS from "exceljs";
+import ExcelJS from "exceljs";
 import { promises as fs } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
