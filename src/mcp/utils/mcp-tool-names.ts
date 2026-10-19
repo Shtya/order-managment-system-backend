@@ -159,9 +159,17 @@ export const TOOL = {
     locationsSearch: "warehouse_locations_search",
     locationsSave: "warehouse_locations_save",
   },
+  ai: {
+    providersList: "list_ai_providers",
+  },
+  agents: {
+    list: "list_agents",
+  },
   automation: {
     stats: "automation_stats",
     search: "automations_search",
+    save: "automations_save",
+    act: "automations_act",
     runsSearch: "automation_runs_search",
     runsRetry: "automation_runs_retry",
     stepsList: "automation_steps_list",

@@ -35,6 +35,8 @@ import { WarehousesModule } from "../warehouse/warehouse.module";
 import { WalletModule } from "../wallet/wallet.module";
 import { AutomationModule } from "../automation/automation.module";
 import { WhatsappModule } from "../whatsapp/whatsapp.module";
+import { AiModule } from "../ai/ai.module";
+import { AgentsModule } from "../agents/agents.module";
 import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
 import { McpScopeGuard } from "./mcp-guards/mcp-scope-guard";
 import { McpHttpController } from "./mcp-http.controller";
@@ -78,6 +80,8 @@ import { McpSafesTools } from "./mcp-tools/safes.tool";
 import { McpSupplierCategoriesTools } from "./mcp-tools/supplier-categories.tool";
 import { McpSuppliersTools } from "./mcp-tools/suppliers.tool";
 import { McpWarehouseLocationsTools, McpWarehousesTools } from "./mcp-tools/warehouses.tool";
+import { McpAiTools } from "./mcp-tools/ai.tool";
+import { McpAgentsTools } from "./mcp-tools/agents.tool";
 import { McpToolRefsCheck } from "./utils/mcp-tool-names";
 import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
 
@@ -130,6 +134,8 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     WalletModule,
     AutomationModule,
     WhatsappModule,
+    AiModule,
+    AgentsModule,
   ],
   // v2: MCP tools are @McpController classes and MUST be listed in `controllers`
   // (classes in `providers` are not discovered, so tools/list would be empty).
@@ -170,6 +176,8 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpAutomationTools,
     McpWhatsappTools,
     McpWarehouseOpsTools,
+    McpAiTools,
+    McpAgentsTools,
   ],
   providers: [
     OAuthService,

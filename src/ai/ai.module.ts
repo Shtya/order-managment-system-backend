@@ -104,6 +104,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
     AiTranscriptionService,
   ],
   exports: [
+    AiService,
     AiOrchestratorService,
     AiTranscriptionService,
     AiAuditService,
