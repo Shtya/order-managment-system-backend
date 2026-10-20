@@ -259,6 +259,14 @@ export class EmailService {
           "email.gmail_disabled",
           retryDelay("reconnect", dispatchAttempt),
         );
+      if (
+        account.provider === "smtp" &&
+        process.env.EMAIL_SMTP_ENABLED !== "true"
+      )
+        throw new EmailDeferredError(
+          "email.smtp_disabled",
+          retryDelay("reconnect", dispatchAttempt),
+        );
       if (account.status !== "connected")
         throw new EmailDeferredError(
           account.status === "suspended"

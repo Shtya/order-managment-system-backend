@@ -82,12 +82,12 @@ export class EmailController {
   @Get("accounts")
   @UseGuards(JwtAuthGuard)
   list(@Req() req: any) {
-    return this.accounts.list(this.accounts.context(req.user));
+    return this.accounts.listSafe(this.accounts.context(req.user));
   }
   @Get("accounts/:id")
   @UseGuards(JwtAuthGuard)
   account(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
-    return this.accounts.get(this.accounts.context(req.user), id, false);
+    return this.accounts.getSafe(this.accounts.context(req.user), id);
   }
   @Delete("accounts/:id")
   @UseGuards(JwtAuthGuard)

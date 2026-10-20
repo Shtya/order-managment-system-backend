@@ -36,7 +36,17 @@ export type PreparedEmail = {
 export interface EmailProvider {
   readonly key: string;
   send(
-    account: { id: string; email: string; senderName: string },
+    account: {
+      id: string;
+      email: string;
+      senderName: string;
+      provider?: string;
+      credentialVersion?: number;
+      smtpHost?: string | null;
+      smtpPort?: number | null;
+      smtpSecurity?: string | null;
+      smtpUsername?: string | null;
+    },
     message: PreparedEmail,
   ): Promise<{ providerMessageId: string }>;
   revoke(accountId: string): Promise<unknown>;

@@ -1,6 +1,6 @@
 # Email backend
 
-Gmail is the initial provider. Campaigns use `EmailCampaignChannel` → `EmailService`; they do not import Gmail or Google OAuth code. Additional providers implement `EmailProvider` and are added to the `EMAIL_PROVIDERS` registration in `email.module.ts`.
+Gmail OAuth and custom SMTP are supported providers. Campaigns use `EmailCampaignChannel` → `EmailService`; they do not import provider-specific code. Providers implement `EmailProvider` and are registered through `EMAIL_PROVIDERS` in `email.module.ts`.
 
 ## Setup
 
@@ -12,6 +12,9 @@ Gmail is the initial provider. Campaigns use `EmailCampaignChannel` → `EmailSe
 ```dotenv
 EMAIL_FEATURE_ENABLED=false
 EMAIL_GMAIL_ENABLED=false
+EMAIL_SMTP_ENABLED=false
+# Optional; these secure submission ports are the default.
+EMAIL_SMTP_ALLOWED_PORTS=465,587,2525
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FRONTEND_URL=https://app.example.com
@@ -52,6 +55,9 @@ Endpoints:
 | --- | --- |
 | `GET /email/accounts` | Current user's connections |
 | `GET /email/accounts/:id` | Safe account metadata |
+| `POST /email/accounts/smtp/test` | Verify custom SMTP settings without storing them |
+| `POST /email/accounts/smtp` | Verify and create an encrypted custom SMTP connection |
+| `PATCH /email/accounts/:id/smtp` | Verify and update an owned SMTP connection; omitted password is preserved |
 | `POST /email/content/validate` | Check supported design and variable syntax |
 | `POST /email/content/preview` | Render sample personalized subject/HTML/plain text |
 | `POST /email/test-send` | Synchronous real test send to the supplied valid email address |

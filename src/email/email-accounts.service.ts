@@ -53,6 +53,39 @@ export class EmailAccountsService {
       order: { createdAt: "DESC" },
     });
   }
+  safe(account: EmailAccountEntity) {
+    const smtp = account.provider === "smtp";
+    return {
+      id: account.id,
+      provider: account.provider,
+      authType: account.authType,
+      connectionName: account.connectionName || account.email,
+      email: account.email,
+      senderName: account.senderName,
+      status: account.status,
+      cooldownUntil: account.cooldownUntil,
+      ...(smtp
+        ? {
+            smtp: {
+              host: account.smtpHost,
+              port: account.smtpPort,
+              security: account.smtpSecurity,
+              username: account.smtpUsername,
+              hasCredential: account.status !== "disconnected",
+            },
+          }
+        : {}),
+      capabilities: smtp
+        ? { edit: true, reconnect: false, disconnect: true }
+        : { edit: false, reconnect: true, disconnect: true },
+    };
+  }
+  async listSafe(context: EmailContext) {
+    return (await this.list(context)).map((account) => this.safe(account));
+  }
+  async getSafe(context: EmailContext, id: string) {
+    return this.safe(await this.get(context, id, false));
+  }
   assertEnabled() {
     emailEnabled(this.translations);
   }

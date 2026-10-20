@@ -27,11 +27,29 @@ export class EmailAccountEntity {
   @Column()
   providerSubject: string;
 
+  @Column({ default: "" })
+  connectionName: string;
+
+  @Column({ default: "oauth2" })
+  authType: string;
+
   @Column()
   email: string;
 
   @Column({ default: "" })
   senderName: string;
+
+  @Column({ nullable: true })
+  smtpHost: string | null;
+
+  @Column("integer", { nullable: true })
+  smtpPort: number | null;
+
+  @Column({ nullable: true })
+  smtpSecurity: string | null;
+
+  @Column({ nullable: true })
+  smtpUsername: string | null;
 
   @Column({ default: "connected" })
   status: string;

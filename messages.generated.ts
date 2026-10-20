@@ -159,6 +159,12 @@ export type I18nTranslations = {
             "public_https_url_required": string;
             "google_not_configured": string;
             "gmail_disabled": string;
+            "smtp_disabled": string;
+            "smtp_destination_invalid": string;
+            "smtp_verification_failed": string;
+            "smtp_already_connected": string;
+            "smtp_account_required": string;
+            "smtp_password_required": string;
             "invalid_return_path": string;
             "invalid_oauth_state": string;
             "initiator_unavailable": string;

@@ -18,6 +18,9 @@ import { EmailController } from "./email.controller";
 import { EMAIL_PROVIDERS } from "./email.types";
 import { GmailService } from "./providers/gmail.service";
 import { GmailController } from "./providers/gmail.controller";
+import { SmtpController } from "./providers/smtp.controller";
+import { SmtpService } from "./providers/smtp.service";
+import { SmtpSecurityService } from "./providers/smtp-security.service";
 import { EmailQueueWorker } from "src/queue/queues/email.queue";
 
 @Module({
@@ -30,7 +33,7 @@ import { EmailQueueWorker } from "src/queue/queues/email.queue";
       EmailSubscriptionEntity,
     ]),
   ],
-  controllers: [EmailController, GmailController],
+  controllers: [EmailController, GmailController, SmtpController],
   providers: [
     EmailAssetsService,
     EmailSendingStatusService,
@@ -39,12 +42,14 @@ import { EmailQueueWorker } from "src/queue/queues/email.queue";
     EmailContentService,
     EmailPolicyService,
     GmailService,
+    SmtpService,
+    SmtpSecurityService,
     EmailService,
     EmailQueueWorker,
     {
       provide: EMAIL_PROVIDERS,
-      useFactory: (gmail: GmailService) => [gmail],
-      inject: [GmailService],
+      useFactory: (gmail: GmailService, smtp: SmtpService) => [gmail, smtp],
+      inject: [GmailService, SmtpService],
     },
   ],
   exports: [
