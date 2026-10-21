@@ -179,6 +179,11 @@ export const TOOL = {
     accountsSearch: "whatsapp_accounts_search",
     templatesSearch: "whatsapp_templates_search",
   },
+  email: {
+    accountsSearch: "email_accounts_search",
+    builderCapabilities: "email_builder_capabilities",
+    preview: "email_campaign_preview",
+  },
   warehouseOps: {
     stats: "warehouse_ops_stats",
     act: "warehouse_ops_act",

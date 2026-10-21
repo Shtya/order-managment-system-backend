@@ -35,6 +35,7 @@ import { WarehousesModule } from "../warehouse/warehouse.module";
 import { WalletModule } from "../wallet/wallet.module";
 import { AutomationModule } from "../automation/automation.module";
 import { WhatsappModule } from "../whatsapp/whatsapp.module";
+import { EmailModule } from "../email/email.module";
 import { AiModule } from "../ai/ai.module";
 import { AgentsModule } from "../agents/agents.module";
 import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
@@ -74,6 +75,7 @@ import { McpGettingStartedTools } from "./mcp-tools/getting-started.tool";
 import { McpShippingAssigningTools } from "./mcp-tools/shipping-assigning.tool";
 import { McpAutomationTools } from "./mcp-tools/automation.tool";
 import { McpWhatsappTools } from "./mcp-tools/whatsapp.tool";
+import { McpEmailTools } from "./mcp-tools/email.tool";
 import { McpWarehouseOpsTools } from "./mcp-tools/warehouse-ops.tool";
 import { McpRolesTools } from "./mcp-tools/roles.tool";
 import { McpSafesTools } from "./mcp-tools/safes.tool";
@@ -134,6 +136,7 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     WalletModule,
     AutomationModule,
     WhatsappModule,
+    EmailModule,
     AiModule,
     AgentsModule,
   ],
@@ -175,6 +178,7 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpWarehouseLocationsTools,
     McpAutomationTools,
     McpWhatsappTools,
+    McpEmailTools,
     McpWarehouseOpsTools,
     McpAiTools,
     McpAgentsTools,

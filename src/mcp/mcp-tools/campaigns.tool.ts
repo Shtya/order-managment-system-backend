@@ -25,6 +25,12 @@ import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 import { uuidField } from "../utils/mcp-date.util";
 import { audienceFilterSchema, normalizeAudienceFilter } from "../utils/mcp-audience-filter";
+import {
+  emailVariablesUsed,
+  McpEmailDocumentError,
+  mcpEmailCampaignConfigSchema,
+  normalizeMcpEmailDocument,
+} from "../schemas/mcp-email-document";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -62,16 +68,16 @@ const campaignsStatsInput = z.object({
 });
 
 const PLACEHOLDERS_DOC =
-  "Values may use placeholders filled per recipient: {{customer.name}}, {{customer.number}}, {{campaign.orderUrl}} (purchase page link).";
+  "Values may use placeholders filled per recipient: {{customer.name}}, {{customer.number}}, {{customer.email}}, {{campaign.orderUrl}}, {{campaign.orderToken}}. Campaign order variables require enablePurchasePage=true.";
 
 const COUNTS_DOC =
-  "Counts: estimatedRecipientsCount = audience size calculated when the campaign is saved, before excluded recipients and duplicate phone numbers are removed. " +
+  "Counts: estimatedRecipientsCount = audience size calculated when the campaign is saved, before excluded recipients and duplicate channel addresses are removed. " +
   "counters.recipientsCount and recipientCounts = the real recipient list, built in the background a few seconds after create / schedule, after exclusions and duplicates are removed (recipientCounts.byStatus splits it by delivery status). " +
   "Right after saving, recipientCounts.total is often 0 while the estimate is not; fetch again to see the real number. They can also differ for good when exclusions or duplicates removed people. " +
   "If exclusions remove everyone, save still succeeds (the estimate ignores them) but a few seconds later the campaign turns failed with failureReason=audience_empty; failed is final and cannot be cancelled or edited.";
 
 const EXCLUSIONS_DOC =
-  "Recipients to skip. type=client skips audience people linked to that clientId; type=phone_number skips anyone with that phone (normalized). " +
+  "Recipients to skip. type=client uses clientId; type=phone_number uses phoneNumber; type=email uses email. " +
   "Applied only when the recipient list is built in the background, not in estimatedRecipientsCount. " +
   "Do not exclude the whole audience: the campaign would turn failed (failureReason=audience_empty) right after saving. " +
   "Replaces the whole list on update; [] clears it.";
@@ -116,6 +122,7 @@ const saveCampaignInput = z.object({
   name: z.string().min(1).max(255).optional().describe("Campaign name, unique in the workspace. Required for create."),
   description: z.string().max(2000).optional(),
   category: z.enum(CampaignCategory).optional(),
+  channel: z.enum([CampaignChannel.WHATSAPP, CampaignChannel.EMAIL]).optional().describe("Required for create. Updates cannot change the saved channel."),
 
   audienceType: z
     .enum(AUDIENCE_TYPES)
@@ -124,16 +131,17 @@ const saveCampaignInput = z.object({
   audienceSegmentId: uuidField(idDescription("Client segment for audienceType=segment.", TOOL.clientSegments.search)).optional(),
   audienceFilter: audienceFilterSchema.optional(),
   manualRecipients: z
-    .array(z.object({ phoneNumber: z.string().min(1).max(50), name: z.string().max(200).optional() }))
+    .array(z.object({ phoneNumber: z.string().min(1).max(50).optional(), email: z.string().email().max(254).optional(), name: z.string().max(200).optional() }).strict())
     .min(1)
     .optional()
-    .describe("For audienceType=manual. Replaces the whole list on update."),
+    .describe("For audienceType=manual. Email campaigns use {email,name?}; WhatsApp campaigns use {phoneNumber,name?}. Replaces the whole list on update."),
   excludedRecipients: z
     .array(
       z.object({
         type: z.enum(CampaignExclusionType),
         clientId: uuidField(idDescription("Client to exclude (type=client).", TOOL.clients.search)).optional(),
         phoneNumber: z.string().max(50).optional().describe("Phone to exclude (type=phone_number)."),
+        email: z.string().email().max(254).optional().describe("Email to exclude (type=email)."),
         reason: z.string().max(1000).optional(),
       }),
     )
@@ -141,6 +149,7 @@ const saveCampaignInput = z.object({
     .describe(EXCLUSIONS_DOC),
 
   whatsapp: whatsappInput.optional(),
+  email: mcpEmailCampaignConfigSchema.optional().describe(`Email content. Get accountId from ${TOOL.email.accountsSearch}, read ${TOOL.email.builderCapabilities}, and validate the complete design with ${TOOL.email.preview} before saving.`),
 
   products: z
     .array(
@@ -244,6 +253,7 @@ function toCampaignSummary(row: any) {
     name: row.name ?? null,
     status: row.status ?? null,
     channel: row.channel ?? null,
+    senderAccountId: row.templateConfigSnapshot?.accountId ?? null,
     category: row.category ?? null,
     recipientsCount: Number(row.recipientsCount ?? 0),
     sentCount: Number(row.sentCount ?? 0),
@@ -264,7 +274,9 @@ function toCampaignResultDto(
   row: any,
   extra: { performance?: any; recipientCounts?: any; exclusions?: any[] | null } = {},
 ) {
-  const wa = row.templateConfigSnapshot ?? null;
+  const snapshot = row.templateConfigSnapshot ?? null;
+  const wa = row.channel === CampaignChannel.WHATSAPP ? snapshot : null;
+  const email = row.channel === CampaignChannel.EMAIL ? snapshot : null;
   return {
     id: row.id,
     name: row.name ?? null,
@@ -282,6 +294,7 @@ function toCampaignResultDto(
       type: e.type,
       clientId: e.clientId ?? null,
       phoneNumber: e.phoneNumber ?? null,
+      email: e.email ?? null,
       reason: e.reason ?? null,
     })),
     scheduleMode: row.scheduleMode ?? null,
@@ -306,6 +319,15 @@ function toCampaignResultDto(
         headerUrl: wa.headerUrl ?? null,
         useOrderFirstItemImage: wa.useOrderFirstItemImage ?? false,
         locationData: wa.locationData ?? null,
+      }
+      : null,
+    email: email
+      ? {
+        accountId: email.accountId ?? null,
+        subject: email.subject ?? null,
+        preheader: email.preheader ?? null,
+        businessIdentity: email.businessIdentity ?? null,
+        document: email.document ?? null,
       }
       : null,
     dates: {
@@ -361,7 +383,7 @@ export class McpCampaignsTools {
   @McpReadTool({
     name: TOOL.campaigns.search,
     description:
-      `Search campaigns or fetch one. Without \`id\`: paged summaries filtered by search text, exact name, status, channel, or category. With \`id\`: returns that campaign with every saved setting (products with prices, shipping, schedule, working hours, delays, max per hour, follow-ups, exclusions, whatsapp template variables in the same shape as ${ref(TOOL.campaigns.save)} input), status + failureReason, counters, order performance, and recipient status counts. Read-only. Create or edit with ${ref(TOOL.campaigns.save)}; start, pause, resume, cancel or retry with ${ref(TOOL.campaigns.act)}. ${COUNTS_DOC}`,
+      `Search campaigns or fetch one. Without \`id\`: paged summaries include channel and senderAccountId and can be filtered by search text, exact name, status, channel, or category. With \`id\`: returns every saved setting, including the complete editable email document or WhatsApp template configuration, products, audience, exclusions, schedule, status, counters, performance, and recipient counts. Credentials are never returned. Read-only. Create or edit with ${ref(TOOL.campaigns.save)}; start, pause, resume, cancel or retry with ${ref(TOOL.campaigns.act)}. ${COUNTS_DOC}`,
     parameters: searchCampaignsInput,
   })
   async searchCampaigns(
@@ -407,6 +429,7 @@ export class McpCampaignsTools {
           id: r.id ?? null,
           name: r.name ?? null,
           phoneNumber: r.phoneNumber ?? null,
+          email: r.email ?? null,
           deliveryStatus: r.deliveryStatus ?? null,
           orderId: r.orderId ?? r.order?.id ?? null,
           orderNumber: r.order?.orderNumber ?? null,
@@ -422,12 +445,13 @@ export class McpCampaignsTools {
   @McpSaveTool({
     name: TOOL.campaigns.save,
     description:
-      `Create or edit a WhatsApp campaign. IMPORTANT: create LAUNCHES the campaign — it starts sending right away, or at scheduledAt when scheduleMode=scheduled with a future time. There is no draft. Sending now requires confirmSendNow=true; confirm with the user first. ` +
-      `Create requires: name, audienceType, whatsapp (accountId, templateId, and every template variable). ` +
-      `Update: only campaigns with status=scheduled can be edited (others: use ${ref(TOOL.campaigns.act)}). Send \`id\` plus fields to change. On update, whatsapp, products, manualRecipients, excludedRecipients and audienceFilter each REPLACE the whole value (products get new row ids; match them by productId / variantId); scheduleMode=now on update starts sending (needs confirmSendNow). ` +
+      `Create or edit a WhatsApp or email campaign. IMPORTANT: create LAUNCHES the campaign — it starts sending right away, or at scheduledAt when scheduleMode=scheduled with a future time. There is no draft. Sending now requires confirmSendNow=true; confirm with the user first. ` +
+      `Create requires: name, audienceType, channel, and the matching whatsapp or email configuration. ` +
+      `Update: only campaigns with status=scheduled can be edited and channel cannot change (others: use ${ref(TOOL.campaigns.act)}). Send \`id\` plus fields to change. On update, whatsapp/email, products, manualRecipients, excludedRecipients and audienceFilter each REPLACE the whole value; scheduleMode=now starts sending (needs confirmSendNow). ` +
       `Audience: customers (all clients, optional audienceFilter), segment (audienceSegmentId from ${ref(TOOL.clientSegments.search)}; check its size with ${ref(TOOL.clientSegments.preview)}), manual (manualRecipients). ` +
       `WhatsApp: accountId from ${ref(TOOL.whatsapp.accountsSearch)}, templateId from ${ref(TOOL.whatsapp.templatesSearch)} (approved + active; its templateConfig lists header/body variables and buttons). ${PLACEHOLDERS_DOC} ` +
-      `Products from ${ref(TOOL.products.search)}. Only the WhatsApp channel is supported. No delete. ${COUNTS_DOC}`,
+      `Email: accountId from ${ref(TOOL.email.accountsSearch)}. Read the exact document language with ${ref(TOOL.email.builderCapabilities)} and preview it with ${ref(TOOL.email.preview)}. MCP email media is URL-only. ${PLACEHOLDERS_DOC} ` +
+      `Products from ${ref(TOOL.products.search)}. No delete. ${COUNTS_DOC}`,
     parameters: saveCampaignInput,
   })
   async saveCampaign(
@@ -435,10 +459,18 @@ export class McpCampaignsTools {
     @McpUser() user: User,
   ) {
     const req = parseSaveInput(input, "campaign", TOOL.campaigns.search);
-    const { confirmSendNow, whatsapp, audienceFilter, ...rest } = req.fields;
+    const { confirmSendNow, whatsapp, email, audienceFilter, ...rest } = req.fields;
     const fields: Record<string, unknown> = { ...rest };
     if (audienceFilter) fields.audienceFilter = normalizeAudienceFilter(audienceFilter);
     if (whatsapp) fields.whatsapp = await this.buildWhatsappConfig(user, whatsapp);
+    if (email) {
+      try {
+        fields.email = { ...email, document: normalizeMcpEmailDocument(email.document) };
+      } catch (error) {
+        if (error instanceof McpEmailDocumentError) throw new RpcException(JSON.stringify({ message: error.message, diagnostics: error.diagnostics }));
+        throw error;
+      }
+    }
 
     const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
     const isFuture = (d: Date | null | undefined) => !!d && d.getTime() > Date.now();
@@ -449,20 +481,25 @@ export class McpCampaignsTools {
     };
 
     if (req.mode === "create") {
-      if (!whatsapp) throw new RpcException("create requires `whatsapp` (accountId, templateId, variables).");
+      if (!input.channel) throw new RpcException("create requires `channel`: whatsapp or email.");
+      if (input.channel === CampaignChannel.WHATSAPP && (!whatsapp || email)) throw new RpcException("channel=whatsapp requires `whatsapp` and forbids `email`.");
+      if (input.channel === CampaignChannel.EMAIL && (!email || whatsapp)) throw new RpcException("channel=email requires `email` and forbids `whatsapp`.");
       if (input.audienceType === CampaignAudienceType.SEGMENT && !input.audienceSegmentId) {
         throw new RpcException(`audienceType=segment requires audienceSegmentId (from ${TOOL.clientSegments.search}).`);
       }
       if (input.audienceType === CampaignAudienceType.MANUAL && !input.manualRecipients?.length) {
         throw new RpcException("audienceType=manual requires manualRecipients.");
       }
+      if (input.audienceType === CampaignAudienceType.MANUAL) this.assertManualRecipients(input.channel, input.manualRecipients || []);
+      this.assertExclusions(input.channel, input.excludedRecipients || []);
+      if (input.channel === CampaignChannel.EMAIL) this.assertEmailPurchasePage(email, input.enablePurchasePage);
       const futureSchedule = input.scheduleMode === CampaignScheduleMode.SCHEDULED && isFuture(scheduledAt);
       if (input.scheduleMode === CampaignScheduleMode.SCHEDULED && !isFuture(scheduledAt)) {
         throw new RpcException("scheduleMode=scheduled needs a future scheduledAt (ISO datetime with timezone).");
       }
       if (!futureSchedule) needConfirm("This create starts the campaign now.");
 
-      fields.channel = CampaignChannel.WHATSAPP;
+      fields.channel = input.channel;
       const parsed = await parseDto(CreateCampaignDto, fields);
       if (parsed.ok === false) throw new RpcException(parsed.message);
       const created: any = await this.campaigns.create(user, parsed.dto);
@@ -475,6 +512,13 @@ export class McpCampaignsTools {
         `Only scheduled campaigns can be edited; this one is ${current.status}${current.failureReason ? ` (failureReason: ${current.failureReason})` : ""}. Use ${TOOL.campaigns.act} for pause / resume / cancel / retry_failed.`,
       );
     }
+    if (input.channel !== undefined && input.channel !== current.channel) throw new RpcException(`Campaign channel cannot change from ${current.channel} to ${input.channel}.`);
+    if (current.channel === CampaignChannel.WHATSAPP && email) throw new RpcException("A WhatsApp campaign cannot accept `email` configuration.");
+    if (current.channel === CampaignChannel.EMAIL && whatsapp) throw new RpcException("An email campaign cannot accept `whatsapp` configuration.");
+    if (input.manualRecipients) this.assertManualRecipients(current.channel, input.manualRecipients);
+    if (input.excludedRecipients) this.assertExclusions(current.channel, input.excludedRecipients);
+    if (current.channel === CampaignChannel.EMAIL && (email || input.enablePurchasePage !== undefined)) this.assertEmailPurchasePage(email || current.templateConfigSnapshot, input.enablePurchasePage ?? current.enablePurchasePage);
+    delete fields.channel;
     if (input.scheduleMode === CampaignScheduleMode.NOW) {
       needConfirm("scheduleMode=now starts the campaign.");
     } else if (input.scheduleMode === CampaignScheduleMode.SCHEDULED) {
@@ -592,5 +636,28 @@ export class McpCampaignsTools {
       buttonVariables,
       ...(cfg.headerType === "LOCATION" ? { locationData: input.locationData } : {}),
     };
+  }
+
+  private assertManualRecipients(channel: CampaignChannel, recipients: any[]) {
+    const invalid = recipients.findIndex((recipient) => channel === CampaignChannel.EMAIL
+      ? !recipient.email || recipient.phoneNumber
+      : !recipient.phoneNumber || recipient.email);
+    if (invalid >= 0) throw new RpcException(channel === CampaignChannel.EMAIL
+      ? `manualRecipients[${invalid}] must contain email (and no phoneNumber) for an email campaign.`
+      : `manualRecipients[${invalid}] must contain phoneNumber (and no email) for a WhatsApp campaign.`);
+  }
+
+  private assertEmailPurchasePage(email: any, enabled: boolean) {
+    const orderVariables = emailVariablesUsed(email).filter((key) => key === "campaign.orderUrl" || key === "campaign.orderToken");
+    if (orderVariables.length && !enabled) throw new RpcException(`${orderVariables.join(", ")} require enablePurchasePage=true.`);
+  }
+
+  private assertExclusions(channel: CampaignChannel, exclusions: any[]) {
+    const invalid = exclusions.findIndex((item) => item.type === CampaignExclusionType.EMAIL
+      ? channel !== CampaignChannel.EMAIL || !item.email || item.clientId || item.phoneNumber
+      : item.type === CampaignExclusionType.PHONE_NUMBER
+        ? channel !== CampaignChannel.WHATSAPP || !item.phoneNumber || item.clientId || item.email
+        : !item.clientId || item.phoneNumber || item.email);
+    if (invalid >= 0) throw new RpcException(`excludedRecipients[${invalid}] does not match its type or campaign channel.`);
   }
 }
