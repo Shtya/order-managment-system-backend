@@ -332,7 +332,7 @@ describe("version 2 email designs", () => {
     expect(result.html).toContain("#112233");
     expect(result.html).not.toContain("▣");
   });
-  it("renders an uploaded video as a player with a clickable fallback", async () => {
+  it("renders an uploaded video as a clickable generated thumbnail", async () => {
     const data = design();
     data.document.blocks[0].children[0].children[0] = {
       id: "video-block",
@@ -346,15 +346,20 @@ describe("version 2 email designs", () => {
       getMany: async () => [{
         id: "123e4567-e89b-42d3-a456-426614174000",
         url: "https://example.com/product.mp4",
+        variants: [{ url: "https://example.com/product-thumbnail.jpg", width: 1200, height: 675 }],
       }],
     } as any);
     const result = await withAssets.render(data, { "customer.name": "Mona" }, undefined, "tenant");
-    expect(result.html).toContain("<video");
-    expect(result.html).toContain("controls");
+    expect(result.html).not.toContain("<video");
+    expect(result.html).not.toContain("<iframe");
     expect(result.html).toContain("https://example.com/product.mp4");
+    expect(result.html).toContain("https://example.com/product-thumbnail.jpg");
+    expect(result.html).toContain("width:64px;height:44px;border-radius:12px");
+    expect(result.html).toContain("border-left:18px solid #ffffff");
+    expect(result.html).not.toContain("&#9654;");
     expect(result.html).toContain("Product demonstration");
   });
-  it("renders a YouTube link with the privacy-enhanced embedded player", async () => {
+  it("renders a YouTube link with its clickable public thumbnail", async () => {
     const data = design();
     data.document.blocks[0].children[0].children[0] = {
       id: "youtube-video",
@@ -364,8 +369,9 @@ describe("version 2 email designs", () => {
       style: { width: 600, height: 338 },
     };
     const result = await renderer.render(data, { "customer.name": "Mona" });
-    expect(result.html).toContain("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
-    expect(result.html).toContain("<iframe");
+    expect(result.html).toContain("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg");
+    expect(result.html).not.toContain("<iframe");
+    expect(result.html).not.toContain("<video");
     expect(result.html).toContain("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   });
   it("renders atomic rich-text variable nodes and rejects unknown ones", async () => {

@@ -152,7 +152,7 @@ export class EmailContentService {
                   : n.type === "button"
                     ? ["label", "url"]
                     : ["image", "video", "document"].includes(n.type)
-                      ? ["sourceType", "assetId", "sourceUrl", "alt", "caption", "url", "title", "content"]
+                      ? ["sourceType", "assetId", "sourceUrl", "alt", "caption", "url", "title", "content", "thumbnailSourceType", "thumbnailAssetId", "thumbnailUrl"]
                       : n.type === "spacer"
                         ? ["height"]
                         : []),
@@ -166,6 +166,19 @@ export class EmailContentService {
                 : !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(n.assetId || ""))
             )
               throw new Error();
+            if (n.type === "video") {
+              const thumbnailSource = n.thumbnailSourceType || "auto";
+              if (!["auto", "upload", "remote"].includes(thumbnailSource))
+                throw new Error();
+              if (
+                thumbnailSource === "upload" &&
+                !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(n.thumbnailAssetId || "")
+              ) throw new Error();
+              if (
+                thumbnailSource === "remote" &&
+                (typeof n.thumbnailUrl !== "string" || !n.thumbnailUrl.startsWith("https://"))
+              ) throw new Error();
+            }
             if (["wrapper", "section", "column"].includes(n.type)) {
               if (
                 !Array.isArray(n.children) ||
@@ -403,7 +416,7 @@ export class EmailContentService {
   private outerPadding(style: any = {}, legacy?: number) {
     return emailOuterPadding(style, legacy);
   }
-  private youtubeEmbedUrl(value: string) {
+  private youtubeThumbnailUrl(value: string) {
     try {
       const url = new URL(value);
       const host = url.hostname.toLowerCase().replace(/^www\./, "");
@@ -416,7 +429,7 @@ export class EmailContentService {
           videoId = url.pathname.split("/")[2] || "";
       }
       return /^[A-Za-z0-9_-]{6,20}$/.test(videoId)
-        ? `https://www.youtube-nocookie.com/embed/${videoId}`
+        ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
         : null;
     } catch {
       return null;
@@ -539,11 +552,33 @@ export class EmailContentService {
           ? `<div style="margin-top:6px;color:#64748b;font-size:12px">${escapeEmailHtml(this.hydrate(b.caption, variables))}</div>`
           : "";
         if (b.type === "video") {
-          const youtube = this.youtubeEmbedUrl(hydratedHref);
-          const player = youtube
-            ? `<iframe src="${escapeEmailHtml(youtube)}" title="Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;height:${style.height || 338}px;border:${border};border-radius:${radius}px;background:${background}"></iframe>`
-            : `<video controls playsinline preload="metadata" src="${safeHref}" style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;${height}border:${border};border-radius:${radius}px;background:${background}"><a href="${safeHref}" style="color:#176c51;font-weight:700;text-decoration:none">▶ Watch video</a></video>`;
-          return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${player}${caption}<div style="margin-top:6px;font-size:12px"><a href="${safeHref}" style="color:#176c51;text-decoration:underline">Watch video</a></div></div></mj-text>`;
+          const thumbnailSource = b.thumbnailSourceType || "auto";
+          const thumbnailAsset = thumbnailSource === "upload"
+            ? assets.get(b.thumbnailAssetId)
+            : null;
+          const thumbnailUrl = thumbnailSource === "remote"
+            ? b.thumbnailUrl
+            : thumbnailSource === "upload"
+              ? thumbnailAsset?.variants?.[thumbnailAsset.variants.length - 1]?.url
+              : b.sourceType === "upload"
+                ? asset?.variants?.[asset.variants.length - 1]?.url
+                : this.youtubeThumbnailUrl(hydratedHref);
+          const safeThumbnail = thumbnailUrl
+            ? this.url(thumbnailUrl, variables, b.id)
+            : null;
+          const thumbnailHeight = style.height || 338;
+          const label = escapeEmailHtml(this.hydrate(b.alt || "Watch video", variables));
+          const thumbnailFit = style.objectFit === "contain"
+            ? "contain"
+            : style.objectFit === "fill"
+              ? "100% 100%"
+              : "cover";
+          const backgroundImage = safeThumbnail
+            ? `background-image:url('${safeThumbnail}');background-position:center;background-repeat:no-repeat;background-size:${thumbnailFit};`
+            : "";
+          const backgroundAttribute = safeThumbnail ? ` background="${safeThumbnail}"` : "";
+          const thumbnail = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="${style.align || "center"}" width="${width}" style="width:${width}px;max-width:100%;border-collapse:separate"><tbody><tr><td${backgroundAttribute} height="${thumbnailHeight}" style="height:${thumbnailHeight}px;${backgroundImage}border:${border};border-radius:${radius}px;background-color:${background};text-align:center;vertical-align:middle"><a href="${safeHref}" title="${label}" aria-label="${label}" style="display:block;height:${thumbnailHeight}px;line-height:${thumbnailHeight}px;text-align:center;text-decoration:none"><span style="display:inline-block;width:64px;height:44px;border-radius:12px;background:rgba(35,35,35,0.85);box-shadow:0 2px 12px rgba(0,0,0,0.2);backdrop-filter:blur(4px);line-height:44px;text-align:center;vertical-align:middle"><span style="display:inline-block;width:0;height:0;margin-left:4px;border-top:11px solid transparent;border-bottom:11px solid transparent;border-left:18px solid #ffffff;vertical-align:middle"></span></span></a></td></tr></tbody></table>`;
+          return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${thumbnail}${caption}</div></mj-text>`;
         }
         const fallbackTitle = b.title || asset?.originalName || "Open document";
         const documentContent = b.content

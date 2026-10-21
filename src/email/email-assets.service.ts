@@ -4,13 +4,14 @@ import { Repository, In, EntityManager } from "typeorm";
 import { EmailAssetEntity } from "entities/email-asset.entity";
 import { TranslationService } from "common/translation.service";
 import sharp from "sharp";
-import { mkdir, writeFile, unlink } from "fs/promises";
+import { mkdir, readFile, writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import type { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import ffprobePath from "ffprobe-static";
+import ffmpegPath from "ffmpeg-static";
 
 const execFileAsync = promisify(execFile);
 type MediaKind = "image" | "video" | "document";
@@ -160,8 +161,11 @@ export class EmailAssetsService {
     const path = join(root, filename);
     await mkdir(root, { recursive: true });
     await writeFile(path, file.buffer, { flag: "wx" });
+    const written = [path];
     try {
       const metadata: Record<string, any> = {};
+      const variants: EmailAssetEntity["variants"] = [];
+      const orphanIds: string[] = [];
       if (kind === "video") {
         const { stdout } = await execFileAsync(ffprobePath.path, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height:format=duration", "-of", "json", path], { timeout: 15000, maxBuffer: 1024 * 1024 });
         const probe = JSON.parse(stdout);
@@ -170,14 +174,51 @@ export class EmailAssetsService {
         const codecs = { mp4: [["h264"], ["aac", undefined]], mov: [["h264"], ["aac", undefined]], webm: [["vp8", "vp9"], ["opus", "vorbis", undefined]] }[ext];
         if (!video || !codecs[0].includes(video.codec_name) || !codecs[1].includes(audio?.codec_name)) this.fail();
         Object.assign(metadata, { duration: Number(probe.format?.duration || 0), videoCodec: video.codec_name, audioCodec: audio?.codec_name, width: video.width, height: video.height });
+        // A generated poster is a derivative of the video asset, so it follows
+        // the same lease/promotion/deletion lifecycle as the source file.
+        const thumbnailName = `${id}-thumbnail.jpg`;
+        const thumbnailPath = join(root, thumbnailName);
+        const ffmpegCandidates = [
+          process.env.EMAIL_FFMPEG_PATH?.trim(),
+          ffmpegPath,
+          "ffmpeg",
+        ].filter((candidate, index, rows) => candidate && rows.indexOf(candidate) === index) as string[];
+        for (const executable of ffmpegCandidates) {
+          try {
+            const seek = Math.max(0, Math.min(1, Number(metadata.duration || 0) / 2));
+            await execFileAsync(executable, [
+              "-ss", seek.toFixed(3), "-i", path, "-frames:v", "1",
+              "-vf", "scale=1200:675:force_original_aspect_ratio=increase,crop=1200:675",
+              "-q:v", "3", "-y", thumbnailPath,
+            ], { timeout: 20000, maxBuffer: 1024 * 1024 });
+            written.push(thumbnailPath);
+            const thumbnail = await readFile(thumbnailPath);
+            variants.push({
+              url: "", // populated after BACKEND_URL is validated below
+              width: 1200,
+              height: 675,
+              bytes: thumbnail.length,
+            });
+            break;
+          } catch {
+            await unlink(thumbnailPath).catch(() => {});
+          }
+        }
+        metadata.thumbnailGenerated = variants.length > 0;
       }
       const base = process.env.BACKEND_URL?.replace(/\/+$/, "");
       if (!base?.startsWith("https://")) this.fail();
       const url = `${base}/uploads/email/${filename}`;
       const orphan = await this.orphans?.create(adminId, url, new Date(Date.now() + 48 * 3600_000));
-      return await this.assets.save(this.assets.create({ id, adminId, kind, originalName: file.originalname, mimeType: file.mimetype, format: ext, bytes: file.size || file.buffer.length, url, metadata, orphanIds: orphan ? [orphan.id] : [], variants: [], leaseUntil: new Date(Date.now() + 48 * 3600_000) }));
+      if (orphan) orphanIds.push(orphan.id);
+      if (variants.length) {
+        variants[0].url = `${base}/uploads/email/${id}-thumbnail.jpg`;
+        const thumbnailOrphan = await this.orphans?.create(adminId, variants[0].url, new Date(Date.now() + 48 * 3600_000));
+        if (thumbnailOrphan) orphanIds.push(thumbnailOrphan.id);
+      }
+      return await this.assets.save(this.assets.create({ id, adminId, kind, originalName: file.originalname, mimeType: file.mimetype, format: ext, bytes: file.size || file.buffer.length, url, metadata, orphanIds, variants, leaseUntil: new Date(Date.now() + 48 * 3600_000) }));
     } catch (error) {
-      await unlink(path).catch(() => {});
+      await Promise.all(written.map((filePath) => unlink(filePath).catch(() => {})));
       if (error instanceof BadRequestException) throw error;
       this.fail();
     }

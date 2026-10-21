@@ -75,6 +75,8 @@ export function emailAssetIds(document: any, visibleOnly = false): string[] {
     for (const n of nodes || []) {
       if (visibleOnly && n.hidden) continue;
       if (["image", "video", "document"].includes(n.type) && n.sourceType !== "remote" && n.assetId) ids.add(n.assetId);
+      if (n.type === "video" && n.thumbnailSourceType === "upload" && n.thumbnailAssetId)
+        ids.add(n.thumbnailAssetId);
       if (n.type === "table") {
         const rich = (node: any) => {
           if (node.type === "image") ids.add(node.attrs?.assetId);
