@@ -549,7 +549,7 @@ export class EmailContentService {
         const documentContent = b.content
           ? this.rich(b.content, variables, 0, b.id).replace(/<p>/g, '<p style="margin:0">')
           : `▣ ${escapeEmailHtml(this.hydrate(fallbackTitle, variables))}`;
-        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><a href="${safeHref}" style="display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:${width}px;max-width:100%;${height}padding:${b.style?.padding ?? 16}px;border:${border};border-radius:${radius}px;background:${background};color:#176c51;font-family:${style.fontFamily || "Cairo"},sans-serif;font-size:${style.fontSize || 16}px;font-weight:${style.fontWeight || 400};line-height:${style.lineHeight || 1.2};text-decoration:none"><span>${documentContent}</span></a>${caption}</div></mj-text>`;
+        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><a href="${safeHref}" style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;${height}padding:${b.style?.padding ?? 16}px;border:${border};border-radius:${radius}px;background:${background};color:#176c51;font-family:${style.fontFamily || "Cairo"},sans-serif;font-size:${style.fontSize || 16}px;font-weight:${style.fontWeight || 400};line-height:${style.lineHeight || 1.2};text-align:${style.align || "center"};text-decoration:none"><span>${documentContent}</span></a>${caption}</div></mj-text>`;
       }
       if (b.type === "divider" && !v2)
         return '<mj-divider border-color="#d5dfd8" />';

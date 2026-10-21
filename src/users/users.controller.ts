@@ -119,6 +119,44 @@ export class UsersController {
   }
 
   @Permissions("users.read")
+  @Get("super-admin/export")
+  async superAdminExport(
+    @Req() req: any,
+    @Res() res: any,
+    @Query("tab") tab?: string,
+    @Query("search") search?: string,
+    @Query("role") role?: string,
+    @Query("roleId") roleId?: string,
+    @Query("active") active?: string,
+    @Query("adminId") adminId?: string,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+    @Query("sortOrder") sortOrder?: string,
+  ) {
+    const buffer = await this.users.superAdminExport(req.user, {
+      tab: tab ?? "all",
+      search: search ?? "",
+      role: role ?? "",
+      roleId: roleId ?? "",
+      active: active ?? "all",
+      adminId: adminId ?? "",
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      sortOrder: sortOrder ?? "DESC",
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=users-super-admin-${Date.now()}.xlsx`,
+    );
+    return res.end(buffer);
+  }
+
+  @Permissions("users.read")
   @Get("super-admin/export/csv")
   async superAdminExportCsv(
     @Req() req: any,
@@ -133,21 +171,19 @@ export class UsersController {
     @Query("endDate") endDate?: string,
     @Query("sortOrder") sortOrder?: string,
   ) {
-    const { filename, csv } = await this.users.superAdminExportCsv(req.user, {
-      tab: tab ?? "all",
-      search: search ?? "",
-      role: role ?? "",
-      roleId: roleId ?? "",
-      active: active ?? "all",
-      adminId: adminId ?? "",
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-      sortOrder: sortOrder ?? "DESC",
-    });
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    return res.send(csv);
+    return this.superAdminExport(
+      req,
+      res,
+      tab,
+      search,
+      role,
+      roleId,
+      active,
+      adminId,
+      startDate,
+      endDate,
+      sortOrder,
+    );
   }
 
   @Permissions("users.read", "users.getOnly")

@@ -16,6 +16,7 @@ import {
   User,
 } from "entities/user.entity";
 import { DataSource, EntityManager, Repository } from "typeorm";
+import ExcelJS from "exceljs";
 import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
 import {
@@ -422,7 +423,7 @@ export class UsersService {
     };
   }
 
-  async superAdminExportCsv(
+  async superAdminExport(
     me: User,
     opts: {
       tab: string;
@@ -448,9 +449,12 @@ export class UsersService {
     const roleId = (opts.roleId || "").trim();
     const active = (opts.active || "all").toLowerCase();
     const adminId = (opts.adminId || "").trim();
+    const na = this.translations.t("common.not_applicable");
 
     const qb = this.usersRepo
       .createQueryBuilder("u")
+      .leftJoinAndSelect("u.company", "company")
+      .leftJoinAndSelect("u.wallet", "wallet")
       .leftJoinAndSelect("u.role", "role")
       .leftJoinAndSelect(
         "u.subscriptions",
@@ -469,17 +473,19 @@ export class UsersService {
       opts?.startDate,
       opts?.endDate,
     );
+
     if (tab === "active") qb.andWhere("u.isActive = true");
     if (tab === "inactive") qb.andWhere("u.isActive = false");
 
     if (active === "true") qb.andWhere("u.isActive = true");
     if (active === "false") qb.andWhere("u.isActive = false");
 
-    if (adminId) qb.andWhere("u.adminId = :adminId", { adminId: adminId });
+    if (adminId) qb.andWhere("u.adminId = :adminId", { adminId });
 
     if (search) {
       qb.andWhere("(u.name LIKE :q OR u.email LIKE :q)", { q: `%${search}%` });
     }
+
     if (roleId) {
       qb.andWhere("role.id = :roleId", { roleId });
     } else if (roleContains) {
@@ -487,42 +493,105 @@ export class UsersService {
     }
 
     const rows = await qb.getRawAndEntities();
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet(
+      this.translations.t("domains.users.export_sheet"),
+    );
 
-    const header = [
-      "id",
-      "name",
-      "email",
-      "role",
-      "plan",
-      "adminId",
-      "adminName",
-      "adminEmail",
-      "isActive",
+    sheet.columns = [
+      { header: this.translations.t("domains.users.export_id"), key: "id", width: 45 },
+      { header: this.translations.t("domains.users.export_name"), key: "name", width: 24 },
+      { header: this.translations.t("domains.users.export_email"), key: "email", width: 28 },
+      { header: this.translations.t("domains.users.export_phone"), key: "phone", width: 18 },
+      { header: this.translations.t("domains.users.export_role"), key: "role", width: 18 },
+      { header: this.translations.t("domains.users.export_plan"), key: "plan", width: 18 },
+      { header: this.translations.t("domains.users.export_admin_id"), key: "adminId", width: 45 },
+      { header: this.translations.t("domains.users.export_admin_name"), key: "adminName", width: 22 },
+      { header: this.translations.t("domains.users.export_admin_email"), key: "adminEmail", width: 28 },
+      { header: this.translations.t("domains.users.export_company_name"), key: "companyName", width: 24 },
+      { header: this.translations.t("domains.users.export_company_phone"), key: "companyPhone", width: 18 },
+      { header: this.translations.t("domains.users.export_company_website"), key: "companyWebsite", width: 60 },
+      { header: this.translations.t("domains.users.export_company_address"), key: "companyAddress", width: 32 },
+      { header: this.translations.t("domains.users.export_company_country"), key: "companyCountry", width: 18 },
+      { header: this.translations.t("domains.users.export_company_currency"), key: "companyCurrency", width: 16 },
+      { header: this.translations.t("domains.users.export_company_tax"), key: "companyTax", width: 18 },
+      { header: this.translations.t("domains.users.export_company_commercial"), key: "companyCommercial", width: 22 },
+      { header: this.translations.t("domains.users.export_business_type"), key: "businessType", width: 20 },
+      { header: this.translations.t("domains.users.export_employee_type"), key: "employeeType", width: 18 },
+      { header: this.translations.t("domains.users.export_onboarding_status"), key: "onboardingStatus", width: 20 },
+      { header: this.translations.t("domains.users.export_current_onboarding_step"), key: "currentOnboardingStep", width: 24 },
+      { header: this.translations.t("domains.users.export_wallet_balance"), key: "walletBalance", width: 17 },
+      { header: this.translations.t("domains.users.export_wallet_total_withdrawn"), key: "walletTotalWithdrawn", width: 18 },
+      { header: this.translations.t("domains.users.export_created_at"), key: "createdAt", width: 30 },
+      { header: this.translations.t("domains.users.export_updated_at"), key: "updatedAt", width: 30 },
+      { header: this.translations.t("domains.users.export_status"), key: "status", width: 16 },
     ];
 
-    const bom = "\uFEFF";
-    const lines = rows.entities.map((u, idx) => {
-      const raw = rows.raw[idx] || {};
-      const vals = [
-        u.id,
-        u.name ?? "",
-        u.email ?? "",
-        u.role?.name ?? "",
-        u.activeSubscription?.plan?.name ?? "",
-        u.adminId ?? "",
-        raw.admin_name ?? "",
-        raw.admin_email ?? "",
-        u.isActive ? "true" : "false",
-      ];
-      return vals.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(",");
-    });
-
-    const csv = bom + header.join(",") + "\n" + lines.join("\n");
-
-    return {
-      filename: `users-super-admin-${Date.now()}.csv`,
-      csv,
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFEFEFEF" },
     };
+
+    for (const [idx, user] of rows.entities.entries()) {
+      const raw = rows.raw[idx] || {};
+      const company = (user.company ?? {}) as Partial<Company>;
+      const wallet = (user.wallet ?? {}) as {
+        currentBalance?: number | null;
+        totalWithdrawn?: number | null;
+      };
+
+      sheet.addRow({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role?.name,
+        plan: user.activeSubscription?.plan?.name,
+        adminId: user.adminId,
+        adminName: raw.admin_name,
+        adminEmail: raw.admin_email,
+        companyName: company.name,
+        companyPhone: company.phone,
+        companyWebsite: company.website,
+        companyAddress: company.address,
+        companyCountry: company.country,
+        companyCurrency: company.currency,
+        companyTax: company.tax,
+        companyCommercial: company.commercial,
+        businessType: company.businessType,
+        employeeType: user.employeeType,
+        onboardingStatus: user.onboardingStatus,
+        currentOnboardingStep: user.currentOnboardingStep,
+        walletBalance: wallet.currentBalance,
+        walletTotalWithdrawn: wallet.totalWithdrawn,
+        createdAt: user.createdAt ? new Date(user.createdAt).toLocaleString() : na,
+        updatedAt: user.updatedAt ? new Date(user.updatedAt).toLocaleString() : na,
+        status: user.isActive
+          ? this.translations.t("domains.users.status_active")
+          : this.translations.t("domains.users.status_inactive"),
+      });
+    }
+
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  async superAdminExportCsv(
+    me: User,
+    opts: {
+      tab: string;
+      search: string;
+      role: string;
+      roleId: string;
+      active: string;
+      adminId: string;
+      startDate: Date;
+      endDate: Date;
+      sortOrder: string;
+    },
+  ) {
+    return this.superAdminExport(me, opts);
   }
 
   private ensureAdminOwnership(me: User, target: User) {
