@@ -303,6 +303,35 @@ describe("version 2 email designs", () => {
       expect(() => renderer.validate(data)).not.toThrow();
     },
   );
+  it("renders editable rich document content instead of a fixed icon and title", async () => {
+    const data = design();
+    data.document.blocks[0].children[0].children[0] = {
+      id: "document-block",
+      type: "document",
+      sourceType: "remote",
+      sourceUrl: "https://example.com/catalog.pdf",
+      content: {
+        type: "doc",
+        content: [{
+          type: "paragraph",
+          content: [{
+            type: "text",
+            text: "Download catalog",
+            marks: [
+              { type: "bold" },
+              { type: "textStyle", attrs: { color: "#112233", fontSize: "20px" } },
+            ],
+          }],
+        }],
+      },
+      style: { width: 500 },
+    };
+    const result = await renderer.render(data, { "customer.name": "Mona" });
+    expect(result.html).toContain("Download catalog");
+    expect(result.html).toContain("<strong>");
+    expect(result.html).toContain("#112233");
+    expect(result.html).not.toContain("▣");
+  });
   it("renders an uploaded video as a player with a clickable fallback", async () => {
     const data = design();
     data.document.blocks[0].children[0].children[0] = {
@@ -324,6 +353,20 @@ describe("version 2 email designs", () => {
     expect(result.html).toContain("controls");
     expect(result.html).toContain("https://example.com/product.mp4");
     expect(result.html).toContain("Product demonstration");
+  });
+  it("renders a YouTube link with the privacy-enhanced embedded player", async () => {
+    const data = design();
+    data.document.blocks[0].children[0].children[0] = {
+      id: "youtube-video",
+      type: "video",
+      sourceType: "remote",
+      sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      style: { width: 600, height: 338 },
+    };
+    const result = await renderer.render(data, { "customer.name": "Mona" });
+    expect(result.html).toContain("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(result.html).toContain("<iframe");
+    expect(result.html).toContain("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   });
   it("renders atomic rich-text variable nodes and rejects unknown ones", async () => {
     const data = design();

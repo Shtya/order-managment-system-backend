@@ -152,7 +152,7 @@ export class EmailContentService {
                   : n.type === "button"
                     ? ["label", "url"]
                     : ["image", "video", "document"].includes(n.type)
-                      ? ["sourceType", "assetId", "sourceUrl", "alt", "caption", "url", "title"]
+                      ? ["sourceType", "assetId", "sourceUrl", "alt", "caption", "url", "title", "content"]
                       : n.type === "spacer"
                         ? ["height"]
                         : []),
@@ -403,6 +403,25 @@ export class EmailContentService {
   private outerPadding(style: any = {}, legacy?: number) {
     return emailOuterPadding(style, legacy);
   }
+  private youtubeEmbedUrl(value: string) {
+    try {
+      const url = new URL(value);
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      let videoId = "";
+      if (host === "youtu.be")
+        videoId = url.pathname.split("/").filter(Boolean)[0] || "";
+      if (["youtube.com", "m.youtube.com", "music.youtube.com"].includes(host)) {
+        if (url.pathname === "/watch") videoId = url.searchParams.get("v") || "";
+        else if (/^\/(embed|shorts)\//.test(url.pathname))
+          videoId = url.pathname.split("/")[2] || "";
+      }
+      return /^[A-Za-z0-9_-]{6,20}$/.test(videoId)
+        ? `https://www.youtube-nocookie.com/embed/${videoId}`
+        : null;
+    } catch {
+      return null;
+    }
+  }
   private blocks(
     content: EmailContent,
     variables: EmailVariables,
@@ -504,12 +523,13 @@ export class EmailContentService {
             "https://example.com/preview.png"
           : b.src;
         const image = `<img src="${this.url(src, variables, b.id)}" alt="${escapeEmailHtml(this.hydrate(b.alt || "", variables))}" style="display:inline-block;max-width:100%;height:auto;${style.width ? `width:${style.width}px;` : ""}${style.backgroundColor ? `background-color:${style.backgroundColor};` : ""}${style.borderWidth ? `border:${style.borderWidth}px solid ${style.borderColor || "#222222"};` : ""}${style.borderRadius ? `border-radius:${style.borderRadius}px;` : ""}" />`;
-        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${b.url ? `<a href="${this.url(b.url, variables, b.id)}">${image}</a>` : image}${b.caption ? `<div style="color:#64748b;font-size:12px">${escapeEmailHtml(this.hydrate(b.caption, variables))}</div>` : ""}</div></mj-text>`;
+        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${b.url ? `<a href="${this.url(b.url, variables, b.id)}">${image}</a>` : image}${b.caption ? `<div style="margin-top:6px;color:#64748b;font-size:12px">${escapeEmailHtml(this.hydrate(b.caption, variables))}</div>` : ""}</div></mj-text>`;
       }
       if (b.type === "video" || b.type === "document") {
         const asset = assets.get(b.assetId);
         const href = b.sourceType === "remote" ? b.sourceUrl : asset?.url;
-        const safeHref = this.url(href, variables, b.id);
+        const hydratedHref = this.hydrate(href, variables);
+        const safeHref = this.url(hydratedHref, {}, b.id);
         const width = style.width || 600;
         const height = style.height ? `height:${style.height}px;` : "";
         const border = `${style.borderWidth ?? 1}px solid ${style.borderColor || "#d5dfd8"}`;
@@ -519,10 +539,17 @@ export class EmailContentService {
           ? `<div style="margin-top:6px;color:#64748b;font-size:12px">${escapeEmailHtml(this.hydrate(b.caption, variables))}</div>`
           : "";
         if (b.type === "video") {
-          return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><video controls playsinline preload="metadata" src="${safeHref}" style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;${height}border:${border};border-radius:${radius}px;background:${background}"><a href="${safeHref}" style="color:#176c51;font-weight:700;text-decoration:none">▶ Watch video</a></video>${caption}</div></mj-text>`;
+          const youtube = this.youtubeEmbedUrl(hydratedHref);
+          const player = youtube
+            ? `<iframe src="${escapeEmailHtml(youtube)}" title="Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;height:${style.height || 338}px;border:${border};border-radius:${radius}px;background:${background}"></iframe>`
+            : `<video controls playsinline preload="metadata" src="${safeHref}" style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;${height}border:${border};border-radius:${radius}px;background:${background}"><a href="${safeHref}" style="color:#176c51;font-weight:700;text-decoration:none">▶ Watch video</a></video>`;
+          return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${player}${caption}<div style="margin-top:6px;font-size:12px"><a href="${safeHref}" style="color:#176c51;text-decoration:underline">Watch video</a></div></div></mj-text>`;
         }
-        const title = b.title || asset?.originalName || "Open document";
-        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><a href="${safeHref}" style="display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:${width}px;max-width:100%;${height}padding:${b.style?.padding ?? 16}px;border:${border};border-radius:${radius}px;background:${background};color:#176c51;font-family:${style.fontFamily || "Cairo"},sans-serif;font-size:${style.fontSize || 16}px;font-weight:${style.fontWeight || 700};line-height:${style.lineHeight || 1.2};text-decoration:none"><span style="font-size:22px;line-height:1">▣</span><span>${escapeEmailHtml(this.hydrate(title, variables))}</span></a>${caption}</div></mj-text>`;
+        const fallbackTitle = b.title || asset?.originalName || "Open document";
+        const documentContent = b.content
+          ? this.rich(b.content, variables, 0, b.id).replace(/<p>/g, '<p style="margin:0">')
+          : `▣ ${escapeEmailHtml(this.hydrate(fallbackTitle, variables))}`;
+        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><a href="${safeHref}" style="display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:${width}px;max-width:100%;${height}padding:${b.style?.padding ?? 16}px;border:${border};border-radius:${radius}px;background:${background};color:#176c51;font-family:${style.fontFamily || "Cairo"},sans-serif;font-size:${style.fontSize || 16}px;font-weight:${style.fontWeight || 400};line-height:${style.lineHeight || 1.2};text-decoration:none"><span>${documentContent}</span></a>${caption}</div></mj-text>`;
       }
       if (b.type === "divider" && !v2)
         return '<mj-divider border-color="#d5dfd8" />';
