@@ -2,7 +2,6 @@ import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/com
 import { InjectRepository } from "@nestjs/typeorm";
 import { EntityManager, In, Repository } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
-import { deletePhysicalFiles } from "common/healpers";
 import { TranslationService } from "common/translation.service";
 
 @Injectable()
@@ -54,9 +53,20 @@ export class OrphanFilesService {
     await repo.delete({ adminId, id: In(cleanIds) } as any);
   }
 
-  async create(adminId: string, url: string) {
-    const row = this.orphanRepo.create({ adminId, url });
+  async create(adminId: string, url: string, expiresAt?: Date) {
+    const row = this.orphanRepo.create({ adminId, url, expiresAt });
     return this.orphanRepo.save(row);
+  }
+
+  async renew(adminId: string, ids: string[], expiresAt: Date) {
+    if (ids?.length) await this.orphanRepo.update({ adminId, id: In(ids) } as any, { expiresAt });
+  }
+
+  /** Promote files into durable ownership without deleting their physical bytes. */
+  async promote(adminId: string, ids: string[], manager?: EntityManager) {
+    if (!ids?.length) return;
+    const repo = manager ? manager.getRepository(OrphanFileEntity) : this.orphanRepo;
+    await repo.delete({ adminId, id: In(ids) } as any);
   }
 
   async deleteOne(adminId: string, id: string, mgr?: EntityManager) {

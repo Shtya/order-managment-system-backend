@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Optional } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, In, EntityManager } from "typeorm";
 import { EmailAssetEntity } from "entities/email-asset.entity";
@@ -7,6 +7,13 @@ import sharp from "sharp";
 import { mkdir, writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { randomUUID } from "crypto";
+import type { OrphanFilesService } from "src/orphan-files/orphan-files.service";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import ffprobePath from "ffprobe-static";
+
+const execFileAsync = promisify(execFile);
+type MediaKind = "image" | "video" | "document";
 
 @Injectable()
 export class EmailAssetsService {
@@ -15,42 +22,51 @@ export class EmailAssetsService {
     @InjectRepository(EmailAssetEntity)
     private readonly assets: Repository<EmailAssetEntity>,
     private readonly translations: TranslationService,
+    @Optional() @Inject("EMAIL_ORPHAN_FILES") private readonly orphans?: OrphanFilesService,
   ) {}
   private fail() {
     throw new BadRequestException(
       this.translations.t("domains.email.invalid_image" as any),
     );
   }
-  async upload(adminId: string, buffer: Buffer) {
-    if (!buffer?.length || buffer.length > 5 * 1024 * 1024 || this.active >= 2)
+  async upload(adminId: string, input: Express.Multer.File | Buffer, kind: MediaKind = "image") {
+    if (!["image", "video", "document"].includes(kind)) this.fail();
+    const file = Buffer.isBuffer(input)
+      ? ({ buffer: input, originalname: "image", mimetype: "application/octet-stream", size: input.length } as Express.Multer.File)
+      : input;
+    const buffer = file?.buffer;
+    const limits = {
+      image: Number(process.env.EMAIL_MAX_IMAGE_BYTES || 5 * 1024 * 1024),
+      video: Number(process.env.EMAIL_MAX_VIDEO_BYTES || 50 * 1024 * 1024),
+      document: Number(process.env.EMAIL_MAX_DOCUMENT_BYTES || 10 * 1024 * 1024),
+    };
+    if (!buffer?.length || buffer.length > limits[kind] || this.active >= 2)
       this.fail();
+    if (kind !== "image") return this.uploadFile(adminId, file, kind);
     const jpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
     const png = buffer
       .subarray(0, 8)
       .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     const gif = /^GIF8[79]a$/.test(buffer.subarray(0, 6).toString("ascii"));
-    if (!jpeg && !png && !gif) this.fail();
+    const webp = buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+    if (!jpeg && !png && !gif && !webp) this.fail();
     this.active++;
     const written: string[] = [];
     try {
       const meta = await sharp(buffer, {
         animated: true,
-        limitInputPixels: 40_000_000,
       }).metadata();
       const frames = meta.pages || 1,
         width = meta.width,
         height = meta.pageHeight || meta.height;
       if (
-        !["jpeg", "png", "gif"].includes(meta.format) ||
+        !["jpeg", "png", "gif", "webp"].includes(meta.format) ||
         !width ||
         !height ||
-        width > 6000 ||
-        height > 6000 ||
-        frames > 100 ||
-        width * height * frames > (frames === 1 ? 20_000_000 : 40_000_000)
+        frames > 100
       )
         this.fail();
-      const id = randomUUID(),
+      const id = randomUUID(), orphanIds: string[] = [],
         variants: EmailAssetEntity["variants"] = [];
       const root = join(process.cwd(), "uploads", "email");
       await mkdir(root, { recursive: true });
@@ -68,28 +84,29 @@ export class EmailAssetsService {
       for (const size of sizes) {
         let pipeline = sharp(buffer, {
           animated: gif,
-          limitInputPixels: 40_000_000,
         })
           .rotate()
           .resize({ width: size, withoutEnlargement: true })
           .timeout({ seconds: 10 });
         pipeline = gif
           ? pipeline.gif()
-          : png
+          : png || webp
             ? pipeline.png({ compressionLevel: 9 })
             : pipeline.jpeg({ quality: 85, mozjpeg: true });
         const { data, info } = await pipeline.toBuffer({
           resolveWithObject: true,
         });
-        if (data.length > 2 * 1024 * 1024) this.fail();
-        const filename = `${id}-${size}.${gif ? "gif" : png ? "png" : "jpg"}`;
+        const filename = `${id}-${size}.${gif ? "gif" : png || webp ? "png" : "jpg"}`;
         const path = join(root, filename);
         written.push(path);
         await writeFile(path, data, { flag: "wx" });
         const base = process.env.BACKEND_URL?.replace(/\/+$/, "");
         if (!base?.startsWith("https://")) this.fail();
+        const url = `${base}/uploads/email/${filename}`;
+        const orphan = await this.orphans?.create(adminId, url, new Date(Date.now() + 48 * 3600_000));
+        if (orphan) orphanIds.push(orphan.id);
         variants.push({
-          url: `${base}/uploads/email/${filename}`,
+          url,
           width: info.width,
           height: gif
             ? (await sharp(data, { animated: true }).metadata()).pageHeight ||
@@ -102,12 +119,17 @@ export class EmailAssetsService {
         this.assets.create({
           id,
           adminId,
+          kind,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          bytes: buffer.length,
           format: meta.format,
           sourceWidth: rotatedWidth,
           sourceHeight: [5, 6, 7, 8].includes(meta.orientation)
             ? width
             : height,
           variants,
+          orphanIds,
           leaseUntil: new Date(Date.now() + 48 * 3600_000),
         }),
       );
@@ -117,6 +139,47 @@ export class EmailAssetsService {
       this.fail();
     } finally {
       this.active--;
+    }
+  }
+  private async uploadFile(adminId: string, file: Express.Multer.File, kind: Exclude<MediaKind, "image">) {
+    const allowed = kind === "video"
+      ? { "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" }
+      : { "application/pdf": "pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx", "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx", "text/csv": "csv", "text/plain": "txt" };
+    const ext = allowed[file.mimetype];
+    if (!ext) this.fail();
+    if (kind === "document") {
+      const head = file.buffer.subarray(0, 8);
+      const zip = head.subarray(0, 2).toString("ascii") === "PK";
+      const pdf = head.subarray(0, 5).toString("ascii") === "%PDF-";
+      const text = !file.buffer.subarray(0, Math.min(file.buffer.length, 4096)).includes(0);
+      if ((ext === "pdf" && !pdf) || (["docx", "xlsx", "pptx"].includes(ext) && !zip) || (["csv", "txt"].includes(ext) && !text)) this.fail();
+    }
+    const id = randomUUID();
+    const root = join(process.cwd(), "uploads", "email");
+    const filename = `${id}.${ext}`;
+    const path = join(root, filename);
+    await mkdir(root, { recursive: true });
+    await writeFile(path, file.buffer, { flag: "wx" });
+    try {
+      const metadata: Record<string, any> = {};
+      if (kind === "video") {
+        const { stdout } = await execFileAsync(ffprobePath.path, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height:format=duration", "-of", "json", path], { timeout: 15000, maxBuffer: 1024 * 1024 });
+        const probe = JSON.parse(stdout);
+        const video = probe.streams?.find((s) => s.codec_type === "video");
+        const audio = probe.streams?.find((s) => s.codec_type === "audio");
+        const codecs = { mp4: [["h264"], ["aac", undefined]], mov: [["h264"], ["aac", undefined]], webm: [["vp8", "vp9"], ["opus", "vorbis", undefined]] }[ext];
+        if (!video || !codecs[0].includes(video.codec_name) || !codecs[1].includes(audio?.codec_name)) this.fail();
+        Object.assign(metadata, { duration: Number(probe.format?.duration || 0), videoCodec: video.codec_name, audioCodec: audio?.codec_name, width: video.width, height: video.height });
+      }
+      const base = process.env.BACKEND_URL?.replace(/\/+$/, "");
+      if (!base?.startsWith("https://")) this.fail();
+      const url = `${base}/uploads/email/${filename}`;
+      const orphan = await this.orphans?.create(adminId, url, new Date(Date.now() + 48 * 3600_000));
+      return await this.assets.save(this.assets.create({ id, adminId, kind, originalName: file.originalname, mimeType: file.mimetype, format: ext, bytes: file.size || file.buffer.length, url, metadata, orphanIds: orphan ? [orphan.id] : [], variants: [], leaseUntil: new Date(Date.now() + 48 * 3600_000) }));
+    } catch (error) {
+      await unlink(path).catch(() => {});
+      if (error instanceof BadRequestException) throw error;
+      this.fail();
     }
   }
   async getMany(adminId: string, ids: string[]) {
@@ -191,6 +254,9 @@ export class EmailAssetsService {
           ...(reason ? { [reason]: true } : {}),
         },
       );
+      const orphanIds = rows.flatMap((row) => row.orphanIds || []);
+      if (reason) await this.orphans?.promote(adminId, orphanIds, manager);
+      else await this.orphans?.renew(adminId, orphanIds, new Date(Date.now() + Number(process.env.EMAIL_ASSET_LEASE_HOURS || 48) * 3600_000));
     };
     if (ids.length) {
       if (transaction) await retain(transaction);
@@ -215,15 +281,29 @@ export class EmailAssetsService {
         .take(100)
         .getMany();
       for (const row of rows) {
-        for (const v of row.variants) {
+        for (const v of row.variants || []) {
           const name = new URL(v.url).pathname.split("/").pop();
           if (name?.startsWith(row.id + "-") && /^[a-z0-9.-]+$/i.test(name))
             await unlink(join(process.cwd(), "uploads", "email", name)).catch(
               () => {},
             );
         }
+        if (row.url) {
+          const name = new URL(row.url).pathname.split("/").pop();
+          if (name?.startsWith(row.id) && /^[a-z0-9.-]+$/i.test(name))
+            await unlink(join(process.cwd(), "uploads", "email", name)).catch(() => {});
+        }
         await repo.delete(row.id);
       }
     });
+  }
+  async release(adminId: string, id: string) {
+    const asset = await this.assets.findOne({ where: { adminId, id } });
+    if (!asset) return { released: true };
+    if (asset.saved || asset.queued || asset.permanent) return { released: false, inUse: true };
+    asset.leaseUntil = new Date(Date.now() + 30 * 60_000);
+    await this.assets.save(asset);
+    await this.orphans?.renew(adminId, asset.orphanIds || [], asset.leaseUntil);
+    return { released: true };
   }
 }

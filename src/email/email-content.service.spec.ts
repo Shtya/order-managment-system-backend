@@ -288,6 +288,43 @@ describe("version 2 email designs", () => {
     ];
     expect(() => renderer.validate(data)).not.toThrow();
   });
+  it.each(["video", "document"])(
+    "validates an uploaded %s before managed assets are loaded",
+    (type) => {
+      const data = design();
+      data.document.blocks[0].children[0].children[0] = {
+        id: `${type}-block`,
+        type,
+        sourceType: "upload",
+        assetId: "123e4567-e89b-42d3-a456-426614174000",
+        ...(type === "document" ? { title: "Price list" } : {}),
+        style: { width: 500, borderRadius: 8 },
+      };
+      expect(() => renderer.validate(data)).not.toThrow();
+    },
+  );
+  it("renders an uploaded video as a player with a clickable fallback", async () => {
+    const data = design();
+    data.document.blocks[0].children[0].children[0] = {
+      id: "video-block",
+      type: "video",
+      sourceType: "upload",
+      assetId: "123e4567-e89b-42d3-a456-426614174000",
+      caption: "Product demonstration",
+      style: { width: 500, height: 280, borderRadius: 8 },
+    };
+    const withAssets = new EmailContentService(translations, {
+      getMany: async () => [{
+        id: "123e4567-e89b-42d3-a456-426614174000",
+        url: "https://example.com/product.mp4",
+      }],
+    } as any);
+    const result = await withAssets.render(data, { "customer.name": "Mona" }, undefined, "tenant");
+    expect(result.html).toContain("<video");
+    expect(result.html).toContain("controls");
+    expect(result.html).toContain("https://example.com/product.mp4");
+    expect(result.html).toContain("Product demonstration");
+  });
   it("renders atomic rich-text variable nodes and rejects unknown ones", async () => {
     const data = design();
     data.document.blocks[0].children[0].children[0] = {

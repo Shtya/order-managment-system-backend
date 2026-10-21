@@ -26,6 +26,8 @@ export const STYLE_RULES: Record<string, RegExp | [number, number]> = {
   marginRight: [0, 100],
   spacing: [0, 100],
   width: [1, 1600],
+  height: [1, 1600],
+  objectFit: /^(contain|cover|fill)$/,
   minHeight: [0, 300],
   borderWidth: [0, 10],
   borderRadius: [0, 100],
@@ -72,7 +74,7 @@ export function emailAssetIds(document: any, visibleOnly = false): string[] {
   const walk = (nodes: any[]) => {
     for (const n of nodes || []) {
       if (visibleOnly && n.hidden) continue;
-      if (n.type === "image") ids.add(n.assetId);
+      if (["image", "video", "document"].includes(n.type) && n.sourceType !== "remote" && n.assetId) ids.add(n.assetId);
       if (n.type === "table") {
         const rich = (node: any) => {
           if (node.type === "image") ids.add(node.attrs?.assetId);

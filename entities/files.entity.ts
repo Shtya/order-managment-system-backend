@@ -27,6 +27,9 @@ export class OrphanFileEntity {
   @Column({ type: "varchar", length: 600 })
   url!: string;
 
+  @Column({ type: "timestamptz", nullable: true })
+  expiresAt?: Date;
+
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 }

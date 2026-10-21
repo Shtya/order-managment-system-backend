@@ -49,14 +49,20 @@ export class EmailController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor("file", {
-      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+      limits: { fileSize: 50 * 1024 * 1024, files: 1 },
     }),
   )
-  upload(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+  upload(@Req() req: any, @UploadedFile() file: Express.Multer.File, @Body("kind") kind?: "image" | "video" | "document") {
     return this.assets.upload(
       this.accounts.context(req.user).adminId,
-      file?.buffer,
+      file,
+      kind,
     );
+  }
+  @Delete("assets/:id")
+  @UseGuards(JwtAuthGuard)
+  releaseAsset(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    return this.assets.release(this.accounts.context(req.user).adminId, id);
   }
   @Post("assets/retain")
   @UseGuards(JwtAuthGuard)

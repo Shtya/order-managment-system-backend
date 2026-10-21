@@ -22,9 +22,12 @@ import { SmtpController } from "./providers/smtp.controller";
 import { SmtpService } from "./providers/smtp.service";
 import { SmtpSecurityService } from "./providers/smtp-security.service";
 import { EmailQueueWorker } from "src/queue/queues/email.queue";
+import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
+import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 
 @Module({
   imports: [
+    OrphanFilesModule,
     TypeOrmModule.forFeature([
       EmailAssetEntity,
       EmailAccountEntity,
@@ -46,6 +49,7 @@ import { EmailQueueWorker } from "src/queue/queues/email.queue";
     SmtpSecurityService,
     EmailService,
     EmailQueueWorker,
+    { provide: "EMAIL_ORPHAN_FILES", useExisting: OrphanFilesService },
     {
       provide: EMAIL_PROVIDERS,
       useFactory: (gmail: GmailService, smtp: SmtpService) => [gmail, smtp],

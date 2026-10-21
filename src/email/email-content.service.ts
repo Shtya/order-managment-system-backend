@@ -95,6 +95,7 @@ export class EmailContentService {
           throw new Error();
         validateEmailStyle(doc.defaults || {});
         const ids = new Set();
+        const mediaCounts = { image: 0, video: 0, document: 0 };
         const walk = (nodes, parent = "root") => {
           for (const n of nodes) {
             invalidElement = typeof n?.id === "string" ? n.id : null;
@@ -105,6 +106,16 @@ export class EmailContentService {
             )
               throw new Error();
             ids.add(n.id);
+            if (n.type in mediaCounts) {
+              mediaCounts[n.type]++;
+              const total = mediaCounts.image + mediaCounts.video + mediaCounts.document;
+              if (
+                total > Number(process.env.EMAIL_MAX_MEDIA_BLOCKS || 10) ||
+                mediaCounts.image > Number(process.env.EMAIL_MAX_IMAGE_BLOCKS || 8) ||
+                mediaCounts.video > Number(process.env.EMAIL_MAX_VIDEO_BLOCKS || 2) ||
+                mediaCounts.document > Number(process.env.EMAIL_MAX_DOCUMENT_BLOCKS || 5)
+              ) throw new Error();
+            }
             if (n.hidden !== undefined && typeof n.hidden !== "boolean")
               throw new Error();
             validateEmailStyle(n.style || {});
@@ -118,6 +129,8 @@ export class EmailContentService {
                       "text",
                       "button",
                       "image",
+                      "video",
+                      "document",
                       "divider",
                       "spacer",
                       ...(process.env.EMAIL_TABLES_ENABLED === "true"
@@ -138,8 +151,8 @@ export class EmailContentService {
                   ? ["content"]
                   : n.type === "button"
                     ? ["label", "url"]
-                    : n.type === "image"
-                      ? ["assetId", "alt", "url"]
+                    : ["image", "video", "document"].includes(n.type)
+                      ? ["sourceType", "assetId", "sourceUrl", "alt", "caption", "url", "title"]
                       : n.type === "spacer"
                         ? ["height"]
                         : []),
@@ -147,10 +160,10 @@ export class EmailContentService {
             if (Object.keys(n).some((key) => !fields.includes(key)))
               throw new Error();
             if (
-              n.type === "image" &&
-              !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-                n.assetId || "",
-              )
+              ["image", "video", "document"].includes(n.type) &&
+              (n.sourceType === "remote"
+                ? typeof n.sourceUrl !== "string" || !n.sourceUrl.startsWith("https://")
+                : !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(n.assetId || ""))
             )
               throw new Error();
             if (["wrapper", "section", "column"].includes(n.type)) {
@@ -178,7 +191,19 @@ export class EmailContentService {
     const encoded = JSON.stringify(content);
     for (const match of encoded.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g))
       if (!VARIABLES.has(match[1])) this.fail("unknown_variable");
-    // Structural validation also runs through the exact renderer used by send.
+    // Structural validation runs through the renderer with safe stand-ins for
+    // managed files. Real asset URLs are loaded and verified by render().
+    const validationAssets = new Map(
+      emailAssetIds(content.document).map((id) => [
+        id,
+        {
+          id,
+          url: "https://example.com/media-preview",
+          originalName: "Document",
+          variants: [{ url: "https://example.com/image-preview.png" }],
+        },
+      ]),
+    );
     this.blocks(
       content,
       Object.fromEntries(
@@ -187,6 +212,7 @@ export class EmailContentService {
           k.endsWith("Url") ? "https://example.com/preview" : "Sample",
         ]),
       ),
+      validationAssets,
     );
   }
   private hydrate(value: unknown, variables: EmailVariables) {
@@ -474,11 +500,29 @@ export class EmailContentService {
       if (b.type === "image") {
         const asset = assets.get(b.assetId);
         const src = v2
-          ? asset?.variants?.[asset.variants.length - 1]?.url ||
+          ? (b.sourceType === "remote" ? b.sourceUrl : asset?.variants?.[asset.variants.length - 1]?.url) ||
             "https://example.com/preview.png"
           : b.src;
         const image = `<img src="${this.url(src, variables, b.id)}" alt="${escapeEmailHtml(this.hydrate(b.alt || "", variables))}" style="display:inline-block;max-width:100%;height:auto;${style.width ? `width:${style.width}px;` : ""}${style.backgroundColor ? `background-color:${style.backgroundColor};` : ""}${style.borderWidth ? `border:${style.borderWidth}px solid ${style.borderColor || "#222222"};` : ""}${style.borderRadius ? `border-radius:${style.borderRadius}px;` : ""}" />`;
-        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${b.url ? `<a href="${this.url(b.url, variables, b.id)}">${image}</a>` : image}</div></mj-text>`;
+        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}">${b.url ? `<a href="${this.url(b.url, variables, b.id)}">${image}</a>` : image}${b.caption ? `<div style="color:#64748b;font-size:12px">${escapeEmailHtml(this.hydrate(b.caption, variables))}</div>` : ""}</div></mj-text>`;
+      }
+      if (b.type === "video" || b.type === "document") {
+        const asset = assets.get(b.assetId);
+        const href = b.sourceType === "remote" ? b.sourceUrl : asset?.url;
+        const safeHref = this.url(href, variables, b.id);
+        const width = style.width || 600;
+        const height = style.height ? `height:${style.height}px;` : "";
+        const border = `${style.borderWidth ?? 1}px solid ${style.borderColor || "#d5dfd8"}`;
+        const radius = style.borderRadius ?? 6;
+        const background = style.backgroundColor || "#f8fafc";
+        const caption = b.caption
+          ? `<div style="margin-top:6px;color:#64748b;font-size:12px">${escapeEmailHtml(this.hydrate(b.caption, variables))}</div>`
+          : "";
+        if (b.type === "video") {
+          return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><video controls playsinline preload="metadata" src="${safeHref}" style="display:inline-block;box-sizing:border-box;width:${width}px;max-width:100%;${height}border:${border};border-radius:${radius}px;background:${background}"><a href="${safeHref}" style="color:#176c51;font-weight:700;text-decoration:none">▶ Watch video</a></video>${caption}</div></mj-text>`;
+        }
+        const title = b.title || asset?.originalName || "Open document";
+        return `<mj-text ${this.outerPadding(containerStyle)}><div style="${this.boxCss(containerStyle)};text-align:${style.align || "center"}"><a href="${safeHref}" style="display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:${width}px;max-width:100%;${height}padding:${b.style?.padding ?? 16}px;border:${border};border-radius:${radius}px;background:${background};color:#176c51;font-family:${style.fontFamily || "Cairo"},sans-serif;font-size:${style.fontSize || 16}px;font-weight:${style.fontWeight || 700};line-height:${style.lineHeight || 1.2};text-decoration:none"><span style="font-size:22px;line-height:1">▣</span><span>${escapeEmailHtml(this.hydrate(title, variables))}</span></a>${caption}</div></mj-text>`;
       }
       if (b.type === "divider" && !v2)
         return '<mj-divider border-color="#d5dfd8" />';
