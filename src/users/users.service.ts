@@ -906,6 +906,12 @@ export class UsersService {
           phone: u.phone,
           employeeType: u.employeeType,
           roleId: u.roleId,
+          role: u.role
+            ? {
+              id: u.role.id,
+              name: u.role.name,
+            }
+            : null,
 
           // 2. Map subscription and plan data
           // We return the subscription object, but specifically the plan info for the FE

@@ -105,6 +105,36 @@ function resolveWhatsappTemplateText(val: any): string {
   return "-";
 }
 
+/**
+ * Successful outbound delivery statuses are progressive. A message currently
+ * marked as read, for example, has also previously been sent and delivered.
+ */
+const MESSAGE_STATUS_FILTER_LEVELS: Partial<Record<MessageStatus, MessageStatus[]>> = {
+  [MessageStatus.ACCEPTED]: [
+    MessageStatus.ACCEPTED,
+    MessageStatus.SENT,
+    MessageStatus.DELIVERED,
+    MessageStatus.READ,
+    MessageStatus.PLAYED,
+  ],
+  [MessageStatus.SENT]: [
+    MessageStatus.SENT,
+    MessageStatus.DELIVERED,
+    MessageStatus.READ,
+    MessageStatus.PLAYED,
+  ],
+  [MessageStatus.DELIVERED]: [
+    MessageStatus.DELIVERED,
+    MessageStatus.READ,
+    MessageStatus.PLAYED,
+  ],
+  [MessageStatus.READ]: [MessageStatus.READ, MessageStatus.PLAYED],
+  [MessageStatus.PLAYED]: [MessageStatus.PLAYED],
+  [MessageStatus.FAILED]: [MessageStatus.FAILED],
+};
+
+const REPLIED_MESSAGE_FILTER = "replied";
+
 @Injectable()
 export class WhatsappService {
   protected readonly logger = new Logger(this.constructor.name);
@@ -2933,7 +2963,22 @@ export class WhatsappService {
 
     // Filters
     if (q?.status) {
-      qb.andWhere("message.status = :status", { status: q.status });
+      if (q.status === REPLIED_MESSAGE_FILTER) {
+        qb.andWhere(
+          `EXISTS (
+            SELECT 1
+            FROM whatsapp_messages reply
+            WHERE reply."replyToId" = message.id
+              AND reply.direction = :replyDirection
+          )`,
+          { replyDirection: MessageDirection.INBOUND },
+        );
+      } else {
+        const statuses = MESSAGE_STATUS_FILTER_LEVELS[q.status as MessageStatus];
+        qb.andWhere("message.status IN (:...statuses)", {
+          statuses: statuses ?? [q.status],
+        });
+      }
     }
 
     if (q?.accountId) {
