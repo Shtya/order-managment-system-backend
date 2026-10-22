@@ -719,7 +719,7 @@ export class OrdersService {
         this.translations.t("common.missing_admin_id"),
       );
     }
-  
+
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const sortBy = String(q?.sortBy ?? "createdAt");
@@ -5114,10 +5114,28 @@ export class OrdersService {
     }
 
     // Reserve stock
+    const variantsToReserve = new Map<string, ProductVariantEntity>();
     for (const item of dto.items) {
-      const variant = variantMap.get(item.variantId)!;
+      const variant = variantMap.get(item.variantId);
+      if (!variant) continue;
+
       variant.reserved = (variant.reserved || 0) + item.quantity;
-      await manager.save(ProductVariantEntity, variant);
+      variantsToReserve.set(variant.id, variant);
+    }
+
+    if (variantsToReserve.size > 0) {
+      await Promise.all(
+        dto.items
+          .filter((item) => variantMap.has(item.variantId))
+          .map((item) =>
+            manager.increment(
+              ProductVariantEntity,
+              { id: item.variantId },
+              "reserved",
+              item.quantity,
+            ),
+          ),
+      );
     }
 
     // Log initial status
@@ -5217,11 +5235,11 @@ export class OrdersService {
         .andWhere("order.adminId = :adminId", { adminId })
         .getOne();
 
-        if (!order) {
-          throw new BadRequestException(
-            this.translations.t("domains.orders.order_not_found"),
-          );
-        }
+      if (!order) {
+        throw new BadRequestException(
+          this.translations.t("domains.orders.order_not_found"),
+        );
+      }
 
       if (dto.clientId) {
         const client = await manager.findOne(ClientEntity, {
@@ -5949,21 +5967,31 @@ export class OrdersService {
 
       if (oldStatusId === dto.statusId) return order;
 
-      // Handle stock changes
-      // if (
-      //   newStatusCode === OrderStatus.CANCELLED ||
-      //   newStatusCode === OrderStatus.RETURNED
-      // ) {
-      //   // Release reserved stock
-      //   for (const item of order.items) {
-      //     const variant = item.variant;
-      //     variant.reserved = Math.max(
-      //       0,
-      //       (variant.reserved || 0) - item.quantity,
-      //     );
-      //     await manager.save(ProductVariantEntity, variant);
-      //   }
-      // }
+      // Release reserved stock when the order is cancelled or returned.
+      if (
+        newStatusCode === OrderStatus.CANCELLED ||
+        newStatusCode === OrderStatus.RETURNED
+      ) {
+        const variantsToRelease = new Map<string, ProductVariantEntity>();
+
+        for (const item of order.items) {
+          const variant = item.variant;
+          if (!variant) continue;
+
+          variant.reserved = Math.max(
+            0,
+            (variant.reserved || 0) - item.quantity,
+          );
+          variantsToRelease.set(variant.id, variant);
+        }
+
+        if (variantsToRelease.size > 0) {
+          await manager.save(
+            ProductVariantEntity,
+            Array.from(variantsToRelease.values()),
+          );
+        }
+      }
 
       if (newStatusCode === OrderStatus.SHIPPED && !order.shippedAt) {
         order.shippedAt = new Date();
