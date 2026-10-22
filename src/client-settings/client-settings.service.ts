@@ -35,21 +35,18 @@ export class ClientSettingsService {
     }
     const agentId = settings.whatsappAiAgentId || null;
     if (!agentId) {
-      throw new BadRequestException(
-        this.i18n.t("domains.agents.agent_required", {
-          lang: I18nContext.current()?.lang,
-        }),
-      );
+      settings.whatsappAiEnabled = false;
+      settings.whatsappAiAgentId = null;
+      return;
+
     }
     const agent = await this.agentRepo.findOne({
-      where: { id: agentId, adminId, isActive: true },
+      where: { id: agentId, adminId },
     });
     if (!agent) {
-      throw new BadRequestException(
-        this.i18n.t("domains.agents.not_found", {
-          lang: I18nContext.current()?.lang,
-        }),
-      );
+      settings.whatsappAiEnabled = false;
+      settings.whatsappAiAgentId = null;
+      return;
     }
     settings.whatsappAiAgentId = agentId;
   }
