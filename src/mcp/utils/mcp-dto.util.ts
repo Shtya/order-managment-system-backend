@@ -174,7 +174,7 @@ export const McpDto = <T extends object>(cls: new () => T): ParameterDecorator =
  * and are never counted as "filters". Keep in sync with listPaging
  * (ideally export this list from the same file as listPaging and import it here).
  */
-export const PAGING_KEYS = ["limit", "page", "sortBy", "sortOrder", "cursor"] as const;
+export const PAGING_KEYS = ["limit", "page", "sortBy", "sortOrder", "sortDir", "cursor"] as const;
 
 const isPagingKey = (key: string): boolean =>
   (PAGING_KEYS as readonly string[]).includes(key);
@@ -267,7 +267,16 @@ export function assertDateOrder(q: Record<string, unknown>) {
   for (const [a, b] of DATE_PAIRS) {
     const start = q[a];
     const end = q[b];
-    if (typeof start === "string" && typeof end === "string" && start > end) {
+    if (typeof start !== "string" || typeof end !== "string") continue;
+
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+    const startTime = Date.parse(dateOnly.test(start) ? `${start}T00:00:00.000Z` : start);
+    const endTime = Date.parse(dateOnly.test(end) ? `${end}T23:59:59.999Z` : end);
+
+    if (
+      (Number.isFinite(startTime) && Number.isFinite(endTime) && startTime > endTime) ||
+      (!Number.isFinite(startTime) && !Number.isFinite(endTime) && start > end)
+    ) {
       throw new RpcException(`\`${a}\` (${start}) is after \`${b}\` (${end}). Swap them.`);
     }
   }

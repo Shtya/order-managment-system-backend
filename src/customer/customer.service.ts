@@ -576,7 +576,11 @@ export class CustomerService {
     };
   }
 
-  async findOne(me: any, id: string) {
+  async findOne(
+    me: any,
+    id: string,
+    options?: { includeRelations?: boolean },
+  ) {
     const adminId = tenantId(me);
     if (!adminId) {
       throw new BadRequestException(
@@ -587,7 +591,8 @@ export class CustomerService {
     const customer = await this.customerRepo.findOne({
       where: { id, adminId },
       relations: {
-        conversation: true
+        conversation: true,
+        ...(options?.includeRelations ? { client: true } : {}),
       },
     });
 

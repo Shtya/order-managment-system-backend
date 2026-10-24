@@ -38,6 +38,8 @@ import { WhatsappModule } from "../whatsapp/whatsapp.module";
 import { EmailModule } from "../email/email.module";
 import { AiModule } from "../ai/ai.module";
 import { AgentsModule } from "../agents/agents.module";
+import { CustomerModule } from "../customer/customer.module";
+import { ConversationModule } from "../conversation/conversation.module";
 import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
 import { McpScopeGuard } from "./mcp-guards/mcp-scope-guard";
 import { McpHttpController } from "./mcp-http.controller";
@@ -84,6 +86,7 @@ import { McpSuppliersTools } from "./mcp-tools/suppliers.tool";
 import { McpWarehouseLocationsTools, McpWarehousesTools } from "./mcp-tools/warehouses.tool";
 import { McpAiTools } from "./mcp-tools/ai.tool";
 import { McpAgentsTools } from "./mcp-tools/agents.tool";
+import { McpContactsTools } from "./mcp-tools/contacts.tool";
 import { McpToolRefsCheck } from "./utils/mcp-tool-names";
 import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
 
@@ -139,6 +142,8 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     EmailModule,
     AiModule,
     AgentsModule,
+    CustomerModule,
+    ConversationModule,
   ],
   // v2: MCP tools are @McpController classes and MUST be listed in `controllers`
   // (classes in `providers` are not discovered, so tools/list would be empty).
@@ -182,6 +187,7 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpWarehouseOpsTools,
     McpAiTools,
     McpAgentsTools,
+    McpContactsTools,
   ],
   providers: [
     OAuthService,

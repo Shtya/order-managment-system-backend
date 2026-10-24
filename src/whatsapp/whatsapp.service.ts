@@ -2902,13 +2902,15 @@ export class WhatsappService {
     qb: SelectQueryBuilder<WhatsappMessageEntity>,
   ) {
     return qb
-      .leftJoin("message.sentByUser", "sentByUser")
-      .addSelect(["sentByUser.id", "sentByUser.name", "sentByUser.avatarUrl"])
-      .leftJoin("message.sentByAgent", "sentByAgent")
-      .addSelect(["sentByAgent.id", "sentByAgent.name"]);
+      .leftJoinAndSelect("message.sentByAgent", "sentByAgent")
+      .leftJoinAndSelect("message.sentByUser", "sentByUser");
   }
 
-  async findAllMessages(me: any, q?: any) {
+  async findAllMessages(
+    me: any,
+    q?: any,
+    options?: { includeSenderRelations?: boolean },
+  ) {
     const adminId = tenantId(me); // Basic tenant resolving
     if (!adminId) {
       throw new BadRequestException(
@@ -2928,9 +2930,8 @@ export class WhatsappService {
       q || {},
     );
 
-    const qb = this.selectMessageSender(
-      this.messageRepo.createQueryBuilder("message"),
-    )
+    const qb = this.messageRepo
+      .createQueryBuilder("message")
       .leftJoinAndSelect("message.account", "account")
       .leftJoinAndSelect("message.replyTo", "replyTo")
       .leftJoinAndSelect(
@@ -2960,6 +2961,10 @@ export class WhatsappService {
         "COALESCE(message.sentAt, message.createdAt) <= :finalEndDate",
         { finalEndDate },
       );
+
+    if (options?.includeSenderRelations) {
+      this.selectMessageSender(qb);
+    }
 
     // Filters
     if (q?.status) {
@@ -2991,8 +2996,44 @@ export class WhatsappService {
       });
     }
 
+    if (q?.customerId) {
+      qb.andWhere("message.customerId = :customerId", {
+        customerId: q.customerId,
+      });
+    }
+
+    if (q?.automationRunId) {
+      qb.andWhere("message.automationRunId = :automationRunId", {
+        automationRunId: q.automationRunId,
+      });
+    }
+
     if (q?.direction) {
       qb.andWhere("message.direction = :direction", { direction: q.direction });
+    }
+
+    if (q?.messageType) {
+      qb.andWhere("message.messageType = :messageType", {
+        messageType: q.messageType,
+      });
+    }
+
+    if (q?.sendSource) {
+      qb.andWhere("message.sendSource = :sendSource", {
+        sendSource: q.sendSource,
+      });
+    }
+
+    if (q?.sentByUserId) {
+      qb.andWhere("message.sentByUserId = :sentByUserId", {
+        sentByUserId: q.sentByUserId,
+      });
+    }
+
+    if (q?.sentByAgentId) {
+      qb.andWhere("message.sentByAgentId = :sentByAgentId", {
+        sentByAgentId: q.sentByAgentId,
+      });
     }
 
     // Search (by contactNumber, messageId, or body text)
@@ -3052,13 +3093,22 @@ export class WhatsappService {
     };
   }
 
-  async findOneMessage(me: any, id: string) {
+  async findOneMessage(
+    me: any,
+    id: string,
+    options?: { includeSenderRelations?: boolean },
+  ) {
     const adminId = tenantId(me);
 
     const message = await this.messageRepo.findOne({
       where: { id, adminId },      
       relations: {
-        account: true
+        account: true,
+        replyTo: true,
+        reactions: true,
+        ...(options?.includeSenderRelations
+          ? { sentByUser: true, sentByAgent: true }
+          : {}),
       },
     });
 

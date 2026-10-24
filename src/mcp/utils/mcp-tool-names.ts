@@ -15,6 +15,10 @@ export const TOOL = {
     save: "clients_save",
     addressSave: "clients_address_save",
   },
+  contacts: {
+    search: "contacts_search",
+    stats: "contacts_stats",
+  },
   cities: {
     list: "list_cities",
     areas: "list_areas",
@@ -178,6 +182,7 @@ export const TOOL = {
     stats: "whatsapp_stats",
     accountsSearch: "whatsapp_accounts_search",
     templatesSearch: "whatsapp_templates_search",
+    messagesSearch: "whatsapp_messages_search",
   },
   email: {
     accountsSearch: "email_accounts_search",

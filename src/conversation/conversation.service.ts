@@ -13,6 +13,7 @@ import {
   ConversationStatus,
   MessageDirection,
   WhatsappMessageEntity,
+  WhatsappMessageType,
 } from "entities/whatsapp.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { CreateConversationDto } from "dto/whatsapp.dto";
@@ -190,6 +191,187 @@ export class ConversationService {
     return {
       unread,
       humanHandoff,
+    };
+  }
+
+  async getContactConversationStats(
+    me: any,
+    period: { startDate: Date; endDate: Date },
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const params = [
+      adminId,
+      period.startDate,
+      period.endDate,
+      WhatsappMessageType.REACTION,
+      ConversationStatus.OPEN,
+      ConversationStatus.ARCHIVED,
+      "delivered",
+    ];
+
+    const [summaryRows, trendRows] = await Promise.all([
+      this.dataSource.query(
+        `
+          WITH first_messages AS (
+            SELECT
+              m."conversationId",
+              MIN(m."createdAt") AS "firstMessageAt"
+            FROM "whatsapp_messages" m
+            WHERE m."adminId" = $1
+              AND m."conversationId" IS NOT NULL
+              AND m."messageType" <> $4
+            GROUP BY m."conversationId"
+          ),
+          active_conversations AS (
+            SELECT DISTINCT m."conversationId"
+            FROM "whatsapp_messages" m
+            WHERE m."adminId" = $1
+              AND m."conversationId" IS NOT NULL
+              AND m."messageType" <> $4
+              AND m."createdAt" BETWEEN $2 AND $3
+          ),
+          order_contacts AS (
+            SELECT DISTINCT o."clientId"
+            FROM "orders" o
+            WHERE o."adminId" = $1
+              AND o."clientId" IS NOT NULL
+              AND o."deleted_at" IS NULL
+          ),
+          delivered_contacts AS (
+            SELECT DISTINCT o."clientId"
+            FROM "orders" o
+            INNER JOIN "order_statuses" os ON os.id = o."statusId"
+            WHERE o."adminId" = $1
+              AND o."clientId" IS NOT NULL
+              AND o."deleted_at" IS NULL
+              AND os.code = $7
+          ),
+          contact_stats AS (
+            SELECT
+              COUNT(*) AS "total",
+              COUNT(*) FILTER (WHERE customer."createdAt" BETWEEN $2 AND $3) AS "new",
+              COUNT(*) FILTER (WHERE conversation.id IS NOT NULL) AS "withConversation",
+              COUNT(*) FILTER (WHERE conversation.id IS NULL) AS "withoutConversation",
+              COUNT(*) FILTER (WHERE customer."clientId" IS NOT NULL) AS "linkedToClient",
+              COUNT(*) FILTER (WHERE customer."clientId" IS NULL) AS "unlinkedToClient",
+              COUNT(*) FILTER (WHERE orders."clientId" IS NOT NULL) AS "withOrders",
+              COUNT(*) FILTER (WHERE delivered."clientId" IS NOT NULL) AS "withDeliveredOrders"
+            FROM "customers" customer
+            LEFT JOIN "whatsapp_conversations" conversation
+              ON conversation."adminId" = customer."adminId"
+             AND conversation."customerId" = customer.id
+            LEFT JOIN order_contacts orders ON orders."clientId" = customer."clientId"
+            LEFT JOIN delivered_contacts delivered ON delivered."clientId" = customer."clientId"
+            WHERE customer."adminId" = $1
+          ),
+          conversation_stats AS (
+            SELECT
+              COUNT(*) AS "total",
+              COUNT(*) FILTER (WHERE first."conversationId" IS NOT NULL) AS "withMessages",
+              COUNT(*) FILTER (WHERE first."conversationId" IS NULL) AS "withoutMessages",
+              COUNT(*) FILTER (WHERE first."firstMessageAt" BETWEEN $2 AND $3) AS "new",
+              COUNT(*) FILTER (WHERE active."conversationId" IS NOT NULL) AS "active",
+              COUNT(*) FILTER (WHERE conversation.status = $5) AS "open",
+              COUNT(*) FILTER (WHERE conversation.status = $6) AS "archived",
+              COUNT(*) FILTER (WHERE conversation."unreadCount" > 0) AS "unread",
+              COALESCE(SUM(conversation."unreadCount"), 0) AS "unreadMessages",
+              COUNT(*) FILTER (WHERE conversation."humanHandoff" = TRUE) AS "humanHandoff",
+              COUNT(*) FILTER (WHERE conversation."agentPausedUntil" > NOW()) AS "agentPaused"
+            FROM "whatsapp_conversations" conversation
+            LEFT JOIN first_messages first ON first."conversationId" = conversation.id
+            LEFT JOIN active_conversations active ON active."conversationId" = conversation.id
+            WHERE conversation."adminId" = $1
+          )
+          SELECT
+            row_to_json(contact_stats) AS contacts,
+            row_to_json(conversation_stats) AS conversations
+          FROM contact_stats
+          CROSS JOIN conversation_stats
+        `,
+        params,
+      ),
+      this.dataSource.query(
+        `
+          WITH days AS (
+            SELECT generate_series(
+              ($2::timestamptz AT TIME ZONE 'Africa/Cairo')::date,
+              ($3::timestamptz AT TIME ZONE 'Africa/Cairo')::date,
+              INTERVAL '1 day'
+            )::date AS day
+          ),
+          first_messages AS (
+            SELECT
+              m."conversationId",
+              MIN(m."createdAt") AS "firstMessageAt"
+            FROM "whatsapp_messages" m
+            WHERE m."adminId" = $1
+              AND m."conversationId" IS NOT NULL
+              AND m."messageType" <> $4
+            GROUP BY m."conversationId"
+          ),
+          new_contacts AS (
+            SELECT
+              (customer."createdAt" AT TIME ZONE 'Africa/Cairo')::date AS day,
+              COUNT(*) AS count
+            FROM "customers" customer
+            WHERE customer."adminId" = $1
+              AND customer."createdAt" BETWEEN $2 AND $3
+            GROUP BY 1
+          ),
+          new_conversations AS (
+            SELECT
+              (first."firstMessageAt" AT TIME ZONE 'Africa/Cairo')::date AS day,
+              COUNT(*) AS count
+            FROM first_messages first
+            WHERE first."firstMessageAt" BETWEEN $2 AND $3
+            GROUP BY 1
+          ),
+          active_conversations AS (
+            SELECT
+              (m."createdAt" AT TIME ZONE 'Africa/Cairo')::date AS day,
+              COUNT(DISTINCT m."conversationId") AS count
+            FROM "whatsapp_messages" m
+            WHERE m."adminId" = $1
+              AND m."conversationId" IS NOT NULL
+              AND m."messageType" <> $4
+              AND m."createdAt" BETWEEN $2 AND $3
+            GROUP BY 1
+          )
+          SELECT
+            TO_CHAR(days.day, 'YYYY-MM-DD') AS date,
+            COALESCE(new_contacts.count, 0) AS "newContacts",
+            COALESCE(new_conversations.count, 0) AS "newConversations",
+            COALESCE(active_conversations.count, 0) AS "activeConversations"
+          FROM days
+          LEFT JOIN new_contacts ON new_contacts.day = days.day
+          LEFT JOIN new_conversations ON new_conversations.day = days.day
+          LEFT JOIN active_conversations ON active_conversations.day = days.day
+          ORDER BY days.day ASC
+        `,
+        params.slice(0, 4),
+      ),
+    ]);
+
+    const numericRecord = (value: Record<string, unknown> | undefined) =>
+      Object.fromEntries(
+        Object.entries(value ?? {}).map(([key, count]) => [key, Number(count ?? 0)]),
+      );
+
+    return {
+      contacts: numericRecord(summaryRows[0]?.contacts),
+      conversations: numericRecord(summaryRows[0]?.conversations),
+      trend: trendRows.map((row: any) => ({
+        date: row.date,
+        newContacts: Number(row.newContacts ?? 0),
+        newConversations: Number(row.newConversations ?? 0),
+        activeConversations: Number(row.activeConversations ?? 0),
+      })),
     };
   }
 
