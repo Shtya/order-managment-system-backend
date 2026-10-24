@@ -46,25 +46,25 @@ const whatsappStatsInput = z.strictObject({
 });
 
 const searchAccountsInput = searchInput("whatsapp account", {
-  ...listPaging({
-    items: "whatsapp accounts",
-    sortBy: ["createdAt", "name", "mobileNumber"],
-    defaultSortBy: "createdAt",
-    search: "Matches account name or number",
-  }),
+    ...listPaging({
+      items: "whatsapp accounts",
+      sortBy: ["createdAt", "name", "mobileNumber"],
+      defaultSortBy: "createdAt",
+      search: "Matches account name or number",
+    }),
   isActive: z.boolean().optional().describe("True for active only, false for inactive only. Omit for all."),
 }, TOOL.whatsapp.accountsSearch);
 
 const searchTemplatesInput = searchInput("whatsapp template", {
-  ...listPaging({
-    items: "whatsapp templates",
-    sortBy: ["createdAt"],
-    search: "Matches template name",
-  }),
+    ...listPaging({
+      items: "whatsapp templates",
+      sortBy: ["createdAt"],
+      search: "Matches template name",
+    }),
   accountId: uuidField(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch)).optional(),
   category: z.enum(TemplateCategory).optional().describe("Keep templates of this category"),
   status: z.enum(TemplateStatus).optional().describe("Keep templates with this status"),
-  language: z.string().optional().describe("Keep templates in this language"),
+    language: z.string().optional().describe("Keep templates in this language"),
   library: z.boolean().optional().describe("True for the Meta library instead of workspace templates."),
 }, TOOL.whatsapp.templatesSearch);
 
@@ -80,42 +80,42 @@ const messageDateField = (label: string) =>
 
 const searchMessagesInput = searchInput("whatsapp message", {
   limit: z.number().int().min(1).max(50).default(25).describe("Maximum messages to return."),
-  search: z
-    .string()
-    .optional()
-    .describe("Matches contact number, WhatsApp message id, or text body."),
-  sortBy: z.enum(["createdAt", "status"]).default("createdAt"),
-  sortDir: z.enum(["ASC", "DESC"]).default("DESC"),
-  cursor: z
-    .strictObject({
-      value: z.union([z.string(), z.number()]),
-      id: uuidField("Message id from the previous page cursor."),
-    })
-    .optional()
+    search: z
+      .string()
+      .optional()
+      .describe("Matches contact number, WhatsApp message id, or text body."),
+    sortBy: z.enum(["createdAt", "status"]).default("createdAt"),
+    sortDir: z.enum(["ASC", "DESC"]).default("DESC"),
+    cursor: z
+      .strictObject({
+        value: z.union([z.string(), z.number()]),
+        id: uuidField("Message id from the previous page cursor."),
+      })
+      .optional()
     .describe("Use nextCursor from the previous result to fetch the next page."),
-  startDate: messageDateField("Range start").optional(),
-  endDate: messageDateField("Range end").optional(),
-  range: z
-    .enum(TREND_RANGES)
-    .optional()
-    .describe(`Quick range. One of: ${TREND_RANGES.join(", ")}.`),
-  status: z
-    .union([z.enum(MessageStatus), z.literal("replied")])
-    .optional()
+    startDate: messageDateField("Range start").optional(),
+    endDate: messageDateField("Range end").optional(),
+    range: z
+      .enum(TREND_RANGES)
+      .optional()
+      .describe(`Quick range. One of: ${TREND_RANGES.join(", ")}.`),
+    status: z
+      .union([z.enum(MessageStatus), z.literal("replied")])
+      .optional()
     .describe("Keep messages with this delivery status, or replied messages."),
   accountId: uuidField(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch)).optional(),
-  conversationId: uuidField("Conversation id.").optional(),
-  customerId: uuidField(
-    idDescription(
-      "Contact id (stored as a customer record).",
-      TOOL.contacts.search,
-    ),
-  ).optional(),
+    conversationId: uuidField("Conversation id.").optional(),
+    customerId: uuidField(
+      idDescription(
+        "Contact id (stored as a customer record).",
+        TOOL.contacts.search,
+      ),
+    ).optional(),
   automationRunId: uuidField(idDescription("Automation run id.", TOOL.automation.runsSearch)).optional(),
-  direction: z.enum(MessageDirection).optional(),
-  messageType: z.enum(WhatsappMessageType).optional(),
-  sendSource: z.enum(MessageSendSource).optional(),
-  sentByUserId: uuidField("User id that sent the message.").optional(),
+    direction: z.enum(MessageDirection).optional(),
+    messageType: z.enum(WhatsappMessageType).optional(),
+    sendSource: z.enum(MessageSendSource).optional(),
+    sentByUserId: uuidField("User id that sent the message.").optional(),
   sentByAgentId: uuidField(idDescription("Agent id that sent the message.", TOOL.agents.list)).optional(),
 }, TOOL.whatsapp.messagesSearch);
 
@@ -226,9 +226,14 @@ function toMessageDto(row: any) {
         }
       : null,
     conversationId: row.conversationId ?? null,
+    customerId: row.customerId ?? null,
+    orderId: row.orderId ?? null,
+    replyToId: row.replyToId ?? null,
+    reactionToId: row.reactionToId ?? null,
     automationRunId: row.automationRunId ?? null,
     campaignId: row.campaignId ?? null,
     sendSource: row.sendSource,
+    sentByUserId: row.sentByUserId ?? null,
     sentByUser: row.sentByUser
       ? {
           id: row.sentByUser.id,
@@ -239,6 +244,7 @@ function toMessageDto(row: any) {
     sentByAgent: row.sentByAgent
       ? { id: row.sentByAgent.id, name: row.sentByAgent.name ?? null }
       : null,
+    sentByAgentId: row.sentByAgentId ?? null,
     sentAt: row.sentAt ?? null,
     deliveredAt: row.deliveredAt ?? null,
     readAt: row.readAt ?? null,
@@ -365,14 +371,14 @@ export class McpWhatsappTools {
     }
     const dates = resolveToolDates(input);
     const period = dates.startDate || dates.endDate
-      ? {
-          startDate: dates.startDate?.toISOString() ?? null,
-          endDate: dates.endDate?.toISOString() ?? null,
-          timezone: BUSINESS_TZ,
-          source: input.range ? "range" : "custom",
-          ...(input.range ? { range: input.range } : {}),
-        }
-      : allTimePeriod;
+        ? {
+            startDate: dates.startDate?.toISOString() ?? null,
+            endDate: dates.endDate?.toISOString() ?? null,
+            timezone: BUSINESS_TZ,
+            source: input.range ? "range" : "custom",
+            ...(input.range ? { range: input.range } : {}),
+          }
+        : allTimePeriod;
     return toolJson({
       report,
       period,
@@ -462,12 +468,12 @@ export class McpWhatsappTools {
 
     const dates = resolveMessageDates(req.query);
     const result = await this.whatsapp.findAllMessages(user, {
-      ...req.query,
-      startDate: dates.startDate,
-      endDate: dates.endDate,
-      range: undefined,
+        ...req.query,
+        startDate: dates.startDate,
+        endDate: dates.endDate,
+        range: undefined,
     }, {
-      includeSenderRelations: true,
+        includeSenderRelations: true,
     });
 
     return toolJson({
