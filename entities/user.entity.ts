@@ -288,6 +288,7 @@ export class Company {
 	@Column({ nullable: true })
 	commercial: string;
 
+	/** @deprecated Use the owning user's `phone` field instead. */
 	@Column({ nullable: true })
 	phone: string;
 

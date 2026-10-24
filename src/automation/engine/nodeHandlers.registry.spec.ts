@@ -562,6 +562,7 @@ describe("loadGlobalData", () => {
       id: "admin-1",
       name: "Ada",
       email: "ada@example.com",
+      phone: "011",
       company: {
         name: "Acme",
         website: "https://acme.test",
@@ -580,7 +581,7 @@ describe("loadGlobalData", () => {
       "global.brandName": "Acme",
       "global.companyEmail": "ada@example.com",
       "global.companyWebsite": "https://acme.test",
-      "global.companyPhone": "010",
+      "global.companyPhone": "011",
       "global.companyAddress": "Cairo",
       "global.companyCurrency": "EGP",
     });

@@ -86,6 +86,7 @@ export class UpsertCompanyDto {
 
 	@IsString({message: i18nValidationMessage('validation.is_string')})
 	@IsOptional()
+	/** @deprecated Company phone is retained for backward compatibility only. Use PATCH /users/me. */
 	phone: string;
 
 	@IsOptional()

@@ -329,7 +329,8 @@ export const loadGlobalData = async (
         "global.brandName": company?.name || user.name || "",
         "global.companyEmail": user.email || "",
         "global.companyWebsite": company?.website || "",
-        "global.companyPhone": company?.phone || "",
+        // Backward-compatible placeholder for existing saved automations.
+        "global.companyPhone": user.phone || "",
         "global.companyAddress": company?.address || "",
         "global.companyCurrency": company?.currency || "",
       },

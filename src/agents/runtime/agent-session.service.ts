@@ -394,9 +394,8 @@ export class AgentSessionService {
 
     const company = owner?.company;
     const business = [
-      `Store name: ${company?.name ?? owner?.name ?? "-"}`,
       company?.currency && `Currency: ${company.currency}`,
-      company?.phone && `Store phone: ${company.phone}`,
+      // owner?.phone && `Store phone: ${owner.phone}`,
       company?.website && `Website: ${company.website}`,
       company?.address && `Address: ${company.address}`,
       company?.businessType && `Business type: ${company.businessType}`,
