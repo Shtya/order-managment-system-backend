@@ -101,6 +101,7 @@ import { TriggerDispatcherService } from "src/automation/engine/triggerDispatche
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
 import {
   ClientSettingsEntity,
+  OrderFlowPath,
   StockDeductionStrategy,
 } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
@@ -3902,10 +3903,17 @@ export class OrdersService {
   async getPrintLifecycleStats(me: any) {
     const adminId = tenantId(me);
 
-    const [distributedStatus, printedStatus] = await Promise.all([
-      this.findStatusByCode(OrderStatus.DISTRIBUTED.trim(), adminId),
-      this.findStatusByCode(OrderStatus.PRINTED.trim(), adminId),
-    ]);
+    const [distributedStatus, printedStatus, preparingStatus, readyStatus] =
+      await Promise.all([
+        this.findStatusByCode(OrderStatus.DISTRIBUTED.trim(), adminId),
+        this.findStatusByCode(OrderStatus.PRINTED.trim(), adminId),
+        this.findStatusByCode(OrderStatus.PREPARING.trim(), adminId),
+        this.findStatusByCode(OrderStatus.READY.trim(), adminId),
+      ]);
+
+    const printedStatusIds = [printedStatus, preparingStatus, readyStatus]
+      .filter((status): status is OrderStatusEntity => !!status)
+      .map((status) => status.id);
 
     const [notPrinted, printed] = await Promise.all([
       this.orderRepo.count({
@@ -3914,12 +3922,14 @@ export class OrdersService {
           statusId: distributedStatus?.id,
         },
       }),
-      this.orderRepo.count({
-        where: {
-          adminId,
-          statusId: printedStatus?.id,
-        },
-      }),
+      printedStatusIds.length > 0
+        ? this.orderRepo.count({
+            where: {
+              adminId,
+              statusId: In(printedStatusIds),
+            },
+          })
+        : Promise.resolve(0),
     ]);
 
     return {
@@ -4038,6 +4048,11 @@ export class OrdersService {
     const userId = me?.id;
 
     return await this.dataSource.transaction(async (manager) => {
+      const settings =
+        await this.clientSettingsService.getCachedSettings(adminId);
+      const isDirectShipping =
+        settings.orderFlowPath === OrderFlowPath.SHIPPING;
+
       // 1. Fetch orders to get IDs and current Status (needed for logs)
       const orders = await manager.find(OrderEntity, {
         where: { adminId, orderNumber: In(orderNumbers) },
@@ -4049,7 +4064,8 @@ export class OrdersService {
         select: {
           id: true,
           statusId: true,
-          orderNumber: true
+          orderNumber: true,
+          labelPrinted: true,
         },
       });
 
@@ -4062,40 +4078,50 @@ export class OrdersService {
 
       const orderIds = orders.map((o) => o.id);
 
-      // 2. Fetch the PRINTED status entity
-      const printedStatus = await this.findStatusByCode(
-        OrderStatus.PRINTED,
-        adminId,
-        manager,
-      );
-      if (!printedStatus) {
+      // 2. Direct shipping skips warehouse preparation and becomes READY.
+      const targetStatusCode = isDirectShipping
+        ? OrderStatus.READY
+        : OrderStatus.PRINTED;
+      const [targetStatus, distributedStatus] = await Promise.all([
+        this.findStatusByCode(targetStatusCode, adminId, manager),
+        this.findStatusByCode(OrderStatus.DISTRIBUTED, adminId, manager),
+      ]);
+      if (!targetStatus) {
         throw new Error(
-          this.translations.t("domains.orders.printed_status_not_configured"),
+          this.translations.t(
+            isDirectShipping
+              ? "domains.orders.ready_status_not_configured"
+              : "domains.orders.printed_status_not_configured",
+          ),
         );
       }
 
-      const newPrintOrders = [];
-      const reprintOrders = [];
+      const newPrintOrders = orders.filter((order) => !order.labelPrinted);
+      const reprintOrders = orders.filter((order) => !!order.labelPrinted);
+      const newPrintOrderIds = newPrintOrders.map((order) => order.id);
+      const statusTransitionOrders = distributedStatus
+        ? orders.filter((order) => order.statusId === distributedStatus.id)
+        : [];
+      const statusTransitionOrderIds = statusTransitionOrders.map(
+        (order) => order.id,
+      );
 
-      orders.forEach((order) => {
-        // If status is already PRINTED or further in the workflow, it's a reprint
-        if (order.statusId === printedStatus.id) {
-          reprintOrders.push(order);
-        } else {
-          newPrintOrders.push(order);
-        }
-      });
-      // 3. Perform Bulk Update
+      // 3. Refresh the print timestamp for all orders, including reprints.
       await manager.update(
         OrderEntity,
         { id: In(orderIds), adminId },
-        {
-          labelPrinted: new Date(),
-          statusId: printedStatus.id,
-        },
+        { labelPrinted: new Date() },
       );
 
-      if (orderIds.length > 0) {
+      // Only DISTRIBUTED orders advance in the workflow. Printing an order in
+      // any other status still updates print metadata and operational logs.
+      if (statusTransitionOrderIds.length > 0) {
+        await manager.update(
+          OrderEntity,
+          { id: In(statusTransitionOrderIds), adminId },
+          { statusId: targetStatus.id },
+        );
+
         const shipmentRepo = manager.getRepository(ShipmentEntity);
 
         // 1. Fetch the latest matching shipment ID for each order
@@ -4106,20 +4132,27 @@ export class OrdersService {
             "order",
             "order.id = shipment.orderId AND order.trackingNumber = shipment.trackingNumber",
           )
-          .where("shipment.orderId IN (:...orderIds)", { orderIds })
+          .where("shipment.orderId IN (:...orderIds)", {
+            orderIds: statusTransitionOrderIds,
+          })
           .orderBy("shipment.orderId")
           .addOrderBy("shipment.created_at", "DESC")
           .getMany();
 
         // Deduplicate in memory to guarantee only the single latest shipment per order ID
-        const uniqueShipmentIds = Array.from(
-          new Map(latestShipments.map((s) => [s.orderId, s.id])).values(),
+        const uniqueShipments = Array.from(
+          new Map(latestShipments.map((s) => [s.orderId, s])).values(),
         );
 
         // 2. Perform one batch update
-        if (uniqueShipmentIds.length > 0) {
-          latestShipments.forEach((s) => (s.status = ShipmentStatus.PREPARING));
-          await manager.save(latestShipments);
+        if (uniqueShipments.length > 0) {
+          const shipmentStatus = isDirectShipping
+            ? ShipmentStatus.READY_TO_SHIP
+            : ShipmentStatus.PREPARING;
+          uniqueShipments.forEach((shipment) => {
+            shipment.status = shipmentStatus;
+          });
+          await manager.save(uniqueShipments);
         }
       }
 
@@ -4130,7 +4163,7 @@ export class OrdersService {
           manager,
           adminId,
           userId,
-          orderIds,
+          orderIds: newPrintOrderIds,
           actionType: OrderActionType.WAYBILL_PRINTED,
           result: OrderActionResult.SUCCESS,
           details: await this.requestTranslations.tAsync(
@@ -4146,7 +4179,7 @@ export class OrdersService {
           manager,
           adminId,
           userId,
-          orderIds,
+          orderIds: reprintOrders.map((order) => order.id),
           actionType: OrderActionType.WAYBILL_REPRINTED,
           result: OrderActionResult.SUCCESS,
           details: await this.requestTranslations.tAsync(
@@ -4157,17 +4190,19 @@ export class OrdersService {
       }
       // 5. ✅ Log the Status Change Timeline (Bulk)
       // We map these to a single insert to maintain high performance
-      const statusLogs = orders.map((order) => ({
+      const statusLogs = statusTransitionOrders.map((order) => ({
         adminId,
         orderId: order.id,
         fromStatusId: order.statusId,
-        toStatusId: printedStatus.id,
+        toStatusId: targetStatus.id,
         userId: userId,
         notes: "Waybill printed",
         createdAt: new Date(),
       }));
 
-      await manager.insert(OrderStatusHistoryEntity, statusLogs);
+      if (statusLogs.length > 0) {
+        await manager.insert(OrderStatusHistoryEntity, statusLogs);
+      }
 
       return { success: true, count: orders.length };
     });

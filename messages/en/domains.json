@@ -578,6 +578,7 @@
     "manifest_insufficient_stock_prefix": "Cannot create manifest due to insufficient stock",
     "insufficient_stock_prefix": "Insufficient stock",
     "printed_status_not_configured": "PRINTED status not configured",
+    "ready_status_not_configured": "READY status not configured",
     "no_orders_found": "No orders found",
     "scan_invalid_status": "Order is currently [{currentStatus}] and is not in a status that allows scanning. It must be Printed or Preparing.",
     "sku_not_in_order": "SKU {sku} not in order",

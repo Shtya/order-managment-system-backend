@@ -578,6 +578,7 @@
     "manifest_insufficient_stock_prefix": "لا يمكن إنشاء بيان التحميل بسبب نقص المخزون",
     "insufficient_stock_prefix": "مخزون غير كافٍ",
     "printed_status_not_configured": "حالة PRINTED غير مهيأة",
+    "ready_status_not_configured": "حالة READY غير مهيأة",
     "no_orders_found": "لم يتم العثور على طلبات",
     "scan_invalid_status": "الطلب حالياً [{currentStatus}] وليس في حالة تسمح بالمسح. يجب أن يكون في حالة مطبوع أو تجهيز.",
     "sku_not_in_order": "رمز SKU {sku} غير موجود في الطلب",

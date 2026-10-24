@@ -710,12 +710,12 @@ export class ShippingService {
 
       // Execute shipment creation transaction
       const result = await this.dataSource.transaction(async (manager) => {
-        const settings =
-          await this.clientSettingsService.getCachedSettings(adminId);
-        const newStatusCode =
-          settings.orderFlowPath === OrderFlowPath.SHIPPING
-            ? OrderStatus.SHIPPED
-            : OrderStatus.DISTRIBUTED;
+        // const settings =
+        //   await this.clientSettingsService.getCachedSettings(adminId);
+        const newStatusCode = OrderStatus.DISTRIBUTED;
+          // settings.orderFlowPath === OrderFlowPath.SHIPPING
+          //   ? OrderStatus.READY
+          //   : OrderStatus.DISTRIBUTED;
 
         // Function to dispatch shipment created trigger after commit
         const dispatchShipmentCreated = async (shipmentId: string) => {

@@ -955,6 +955,7 @@ export type I18nTranslations = {
             "manifest_insufficient_stock_prefix": string;
             "insufficient_stock_prefix": string;
             "printed_status_not_configured": string;
+            "ready_status_not_configured": string;
             "no_orders_found": string;
             "scan_invalid_status": string;
             "sku_not_in_order": string;
