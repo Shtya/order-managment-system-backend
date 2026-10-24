@@ -215,6 +215,7 @@ export class CustomerService {
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
+    const accountId = String(q?.accountId ?? "").trim();
     const sortBy = String(q?.sortBy ?? "createdAt");
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -225,6 +226,19 @@ export class CustomerService {
       .leftJoinAndSelect("customer.conversation", "conversation")
       .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
       .where("customer.adminId = :adminId", { adminId });
+
+    if (accountId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM "whatsapp_messages" account_message
+          WHERE account_message."adminId" = :adminId
+            AND account_message."accountId" = :accountId
+            AND account_message."conversationId" = conversation.id
+        )`,
+        { accountId },
+      );
+    }
 
     // Search (by name or phone number)
     if (search) {

@@ -115,8 +115,8 @@ const searchMessagesInput = searchInput("whatsapp message", {
     direction: z.enum(MessageDirection).optional(),
     messageType: z.enum(WhatsappMessageType).optional(),
     sendSource: z.enum(MessageSendSource).optional(),
-    sentByUserId: uuidField("User id that sent the message.").optional(),
-  sentByAgentId: uuidField(idDescription("Agent id that sent the message.", TOOL.agents.list)).optional(),
+    sentByUserId: uuidField("User id for outbound messages. Inbound messages remain included.").optional(),
+  sentByAgentId: uuidField(idDescription("Agent id for outbound messages; inbound messages remain included.", TOOL.agents.list)).optional(),
 }, TOOL.whatsapp.messagesSearch);
 
 const isSet = (v: unknown): boolean =>
@@ -472,6 +472,7 @@ export class McpWhatsappTools {
         startDate: dates.startDate,
         endDate: dates.endDate,
         range: undefined,
+        skipDefaultRange: !dates.startDate && !dates.endDate,
     }, {
         includeSenderRelations: true,
     });

@@ -14,13 +14,14 @@ import {
   searchInput,
 } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { TOOL } from "../utils/mcp-tool-names";
+import { idDescription, TOOL } from "../utils/mcp-tool-names";
 import {
   BUSINESS_TZ,
   TREND_RANGES,
   businessDayRange,
   isoDateField,
   resolveQuickRange,
+  uuidField,
 } from "../utils/mcp-date.util";
 
 const searchContactsInput = searchInput(
@@ -32,6 +33,12 @@ const searchContactsInput = searchInput(
       defaultSortBy: "createdAt",
       search: "Matches contact name or phone number.",
     }),
+    accountId: uuidField(
+      idDescription(
+        "WhatsApp account id. Returns contacts that have at least one message through this account.",
+        TOOL.whatsapp.accountsSearch,
+      ),
+    ).optional(),
   },
   TOOL.contacts.search,
 );
@@ -51,7 +58,7 @@ const contactsStatsInput = z.strictObject({
     .enum(TREND_RANGES)
     .optional()
     .describe(
-      `Quick period. One of: ${TREND_RANGES.join(", ")}. Defaults to last_30_days when no dates are supplied.`,
+      `Quick period. One of: ${TREND_RANGES.join(", ")}. Omit dates and range for all-time statistics.`,
     ),
   startDate: statsDateField("Period start").optional(),
   endDate: statsDateField("Period end").optional(),
@@ -75,21 +82,21 @@ export function resolveContactStatsPeriod(
     );
   }
 
-  const source: "last_30_days" | "range" | "custom" = hasRange
+  const source: "all_time" | "range" | "custom" = hasRange
     ? "range"
     : hasStart
       ? "custom"
-      : "last_30_days";
-  const range = input.range ?? (!hasStart ? "last_30_days" : undefined);
+      : "all_time";
+  const range = input.range;
 
-  let startDate: Date;
-  let endDate: Date;
+  let startDate: Date | undefined;
+  let endDate: Date | undefined;
   if (range) {
     const resolved = resolveQuickRange(range);
     const dates = businessDayRange(resolved.startDate, resolved.endDate);
     startDate = dates.start!;
     endDate = dates.end!;
-  } else {
+  } else if (hasStart) {
     const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
     startDate = dateOnly.test(input.startDate!)
       ? businessDayRange(input.startDate).start!
@@ -99,7 +106,7 @@ export function resolveContactStatsPeriod(
       : new Date(input.endDate!);
   }
 
-  if (startDate > endDate) {
+  if (startDate && endDate && startDate > endDate) {
     throw new RpcException("`startDate` is after `endDate`. Swap them.");
   }
 
@@ -107,8 +114,8 @@ export function resolveContactStatsPeriod(
     startDate,
     endDate,
     period: {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
+      startDate: startDate?.toISOString() ?? null,
+      endDate: endDate?.toISOString() ?? null,
       timezone: BUSINESS_TZ,
       source,
     },
@@ -184,7 +191,7 @@ export class McpContactsTools {
   @McpReadTool({
     name: TOOL.contacts.search,
     description:
-      "Search contacts or fetch one. Contacts are stored internally as customers (CustomerEntity), so contact id and customerId mean the same id. Without `id`: paged contact summaries; search matches name or phone, with sorting by createdAt, updatedAt, name, or phoneNumber. With `id`: returns full contact/customer details. Use the returned id as customerId in whatsapp_messages_search. Use contacts_stats for aggregate contact and conversation activity. Read-only.",
+      "Search contacts or fetch one. Contacts are stored internally as customers (CustomerEntity), so contact id and customerId mean the same id. Without `id`: paged contact summaries; search matches name or phone, and accountId keeps contacts with at least one message through that WhatsApp account. With `id`: returns full contact/customer details. Use the returned id as customerId in whatsapp_messages_search. Use contacts_stats for aggregate contact and conversation activity. Read-only.",
     parameters: searchContactsInput,
   })
   async searchContacts(
@@ -212,7 +219,7 @@ export class McpContactsTools {
   @McpReadTool({
     name: TOOL.contacts.stats,
     description:
-      "Contact and WhatsApp conversation statistics. Contacts are stored as customers, so contact id and customerId mean the same id. Returns all-time contact/conversation totals plus period-scoped new and active counts and a continuous daily trend. A new conversation is dated by its first non-reaction message. Accepts a quick range or startDate/endDate as dates or ISO date-times; defaults to the last 30 days. Read-only.",
+      "Contact and WhatsApp conversation statistics. Contacts are stored as customers, so contact id and customerId mean the same id. Returns contact/conversation totals, new and active counts, and a continuous daily trend. A new conversation is dated by its first non-reaction message. Accepts a quick range or startDate/endDate as dates or ISO date-times; omitting them returns all-time statistics. Read-only.",
     parameters: contactsStatsInput,
   })
   async getContactStats(
@@ -229,10 +236,10 @@ export class McpContactsTools {
             "Distinct conversations with any non-reaction message during the selected period, including conversations that started before the period.",
         },
       },
-      ...(await this.conversations.getContactConversationStats(user, {
-        startDate,
-        endDate,
-      })),
+      ...(await this.conversations.getContactConversationStats(
+        user,
+        startDate && endDate ? { startDate, endDate } : undefined,
+      )),
     });
   }
 }

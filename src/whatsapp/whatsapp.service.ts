@@ -3036,16 +3036,46 @@ export class WhatsappService {
       });
     }
 
-    if (q?.sentByUserId) {
-      qb.andWhere("message.sentByUserId = :sentByUserId", {
-        sentByUserId: q.sentByUserId,
-      });
-    }
+    if (q?.sentByUserId || q?.sentByAgentId) {
+      qb.andWhere(
+        new Brackets((senderFilter) => {
+          senderFilter
+            .where("message.direction = :inboundDirection", {
+              inboundDirection: MessageDirection.INBOUND,
+            })
+            .orWhere(
+              new Brackets((outboundFilter) => {
+                outboundFilter.where("message.direction = :outboundDirection", {
+                  outboundDirection: MessageDirection.OUTBOUND,
+                });
 
-    if (q?.sentByAgentId) {
-      qb.andWhere("message.sentByAgentId = :sentByAgentId", {
-        sentByAgentId: q.sentByAgentId,
-      });
+                outboundFilter.andWhere(
+                  new Brackets((matchingSender) => {
+                    if (q?.sentByUserId) {
+                      matchingSender.where(
+                        "message.sentByUserId = :sentByUserId",
+                        { sentByUserId: q.sentByUserId },
+                      );
+                    }
+                    if (q?.sentByAgentId) {
+                      if (q?.sentByUserId) {
+                        matchingSender.orWhere(
+                          "message.sentByAgentId = :sentByAgentId",
+                          { sentByAgentId: q.sentByAgentId },
+                        );
+                      } else {
+                        matchingSender.where(
+                          "message.sentByAgentId = :sentByAgentId",
+                          { sentByAgentId: q.sentByAgentId },
+                        );
+                      }
+                    }
+                  }),
+                );
+              }),
+            );
+        }),
+      );
     }
 
     // Search (by contactNumber, messageId, or body text)

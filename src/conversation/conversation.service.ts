@@ -210,7 +210,7 @@ export class ConversationService {
 
   async getContactConversationStats(
     me: any,
-    period: { startDate: Date; endDate: Date },
+    period?: { startDate: Date; endDate: Date },
   ) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -219,10 +219,35 @@ export class ConversationService {
       );
     }
 
+    let effectivePeriod = period;
+    if (!effectivePeriod) {
+      const [bounds] = await this.dataSource.query(
+        `
+          SELECT
+            LEAST(
+              COALESCE(
+                (SELECT MIN(customer."createdAt") FROM "customers" customer WHERE customer."adminId" = $1),
+                NOW()
+              ),
+              COALESCE(
+                (SELECT MIN(message."createdAt") FROM "whatsapp_messages" message WHERE message."adminId" = $1),
+                NOW()
+              )
+            ) AS "startDate",
+            NOW() AS "endDate"
+        `,
+        [adminId],
+      );
+      effectivePeriod = {
+        startDate: new Date(bounds.startDate),
+        endDate: new Date(bounds.endDate),
+      };
+    }
+
     const params = [
       adminId,
-      period.startDate,
-      period.endDate,
+      effectivePeriod.startDate,
+      effectivePeriod.endDate,
       WhatsappMessageType.REACTION,
       ConversationStatus.OPEN,
       ConversationStatus.ARCHIVED,

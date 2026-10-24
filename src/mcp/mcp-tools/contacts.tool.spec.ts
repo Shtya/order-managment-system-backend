@@ -9,15 +9,15 @@ import { resolveContactStatsPeriod } from "./contacts.tool";
 describe("contacts stats period", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("defaults to the last 30 Cairo calendar days and identifies the source", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-24T12:00:00.000Z"));
-
+  it("defaults to all time without inventing date boundaries", () => {
     const result = resolveContactStatsPeriod({});
 
-    expect(result.period.source).toBe("last_30_days");
+    expect(result.period.source).toBe("all_time");
     expect(result.period.timezone).toBe("Africa/Cairo");
-    expect(result.startDate < result.endDate).toBe(true);
+    expect(result.startDate).toBeUndefined();
+    expect(result.endDate).toBeUndefined();
+    expect(result.period.startDate).toBeNull();
+    expect(result.period.endDate).toBeNull();
   });
 
   it("accepts mixed date and date-time boundaries", () => {
