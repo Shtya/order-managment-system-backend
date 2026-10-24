@@ -424,6 +424,7 @@ export class ClientService {
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
+    const includeAddresses = this.queryFlag(q?.includeAddresses);
     const sortBy = String(q?.sortBy ?? "createdAt");
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -435,6 +436,10 @@ export class ClientService {
       .leftJoinAndSelect("contacts.conversation", "conversation")
       .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
       .where("client.adminId = :adminId", { adminId });
+
+    if (includeAddresses) {
+      qb.leftJoinAndSelect("client.addresses", "addresses");
+    }
 
     if (search) {
       qb.andWhere(
@@ -454,6 +459,10 @@ export class ClientService {
       email: "client.email",
     };
     qb.orderBy(sortColumns[sortBy] || "client.createdAt", sortDir);
+    if (includeAddresses) {
+      qb.addOrderBy("addresses.isDefault", "DESC")
+        .addOrderBy("addresses.createdAt", "DESC");
+    }
 
     if (this.queryFlag(q?.hasPhone)) {
       this.applyHasPhoneFilter(qb);

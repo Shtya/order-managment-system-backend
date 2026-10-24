@@ -580,7 +580,7 @@
     "printed_status_not_configured": "حالة PRINTED غير مهيأة",
     "ready_status_not_configured": "حالة READY غير مهيأة",
     "no_orders_found": "لم يتم العثور على طلبات",
-    "scan_invalid_status": "الطلب حالياً [{currentStatus}] وليس في حالة تسمح بالمسح. يجب أن يكون في حالة مطبوع أو تجهيز.",
+    "scan_invalid_status": "حالة الطلب حالياً  [{currentStatus}] وليس في حالة تسمح بالمسح. يجب أن تكون حالة الطلب \"تم الطباعة\" أو \"قيد التحضير \".",
     "sku_not_in_order": "رمز SKU {sku} غير موجود في الطلب",
     "item_already_fully_scanned": "تم مسح العنصر بالكامل",
     "order_must_be_ready_for_shipping_scan": "يجب أن يكون الطلب في حالة READY لمسح الشحن",

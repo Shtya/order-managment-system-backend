@@ -42,6 +42,7 @@ export type I18nTranslations = {
             "conversation_read": string;
             "conversation_update": string;
             "customer_delete": string;
+            "customer_getOnly": string;
             "customer_read": string;
             "customer_update": string;
             "orders_confirm-incoming": string;

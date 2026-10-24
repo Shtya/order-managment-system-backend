@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, DataSource, EntityManager, MoreThan, Repository } from "typeorm";
+import { Brackets, DataSource, EntityManager, Repository } from "typeorm";
 import {
   ConversationAiMode,
   ConversationEntity,
@@ -165,7 +165,7 @@ export class ConversationService {
     return saved;
   }
 
-  async getTabCounts(me: any) {
+  async getTabCounts(me: any, requestedAccountId?: string) {
     const adminId = tenantId(me);
     if (!adminId) {
       throw new BadRequestException(
@@ -173,22 +173,36 @@ export class ConversationService {
       );
     }
 
-    const [unread, humanHandoff] = await Promise.all([
-      this.conversationRepo.count({
-        where: {
-          adminId,
-          unreadCount: MoreThan(0),
-        },
-      }),
-      this.conversationRepo.count({
-        where: {
-          adminId,
-          humanHandoff: true,
-        },
-      }),
+    const accountId = String(requestedAccountId ?? "").trim();
+    const scopedQuery = () => {
+      const query = this.conversationRepo
+        .createQueryBuilder("conversation")
+        .where("conversation.adminId = :adminId", { adminId });
+
+      if (accountId && accountId !== "all") {
+        query.andWhere(
+          `EXISTS (
+            SELECT 1
+            FROM "whatsapp_messages" account_message
+            WHERE account_message."conversationId" = conversation.id
+              AND account_message."adminId" = :adminId
+              AND account_message."accountId" = :accountId
+          )`,
+          { accountId },
+        );
+      }
+
+      return query;
+    };
+
+    const [all, unread, humanHandoff] = await Promise.all([
+      scopedQuery().getCount(),
+      scopedQuery().andWhere("conversation.unreadCount > 0").getCount(),
+      scopedQuery().andWhere("conversation.humanHandoff = true").getCount(),
     ]);
 
     return {
+      all,
       unread,
       humanHandoff,
     };
@@ -385,6 +399,7 @@ export class ConversationService {
 
     const limit = Number(q?.limit ?? 50);
     const search = String(q?.search ?? "").trim();
+    const accountId = String(q?.accountId ?? "").trim();
     const sortBy = String(q?.sortBy ?? "lastMessageAt"); // Default to lastMessageAt for chat
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -397,11 +412,31 @@ export class ConversationService {
           ? { value: q["cursor[value]"], id: q["cursor[id]"] }
           : undefined;
 
+    const hasAccountFilter = !!accountId && accountId !== "all";
     const qb = this.conversationRepo
       .createQueryBuilder("conversation")
       .leftJoinAndSelect("conversation.customer", "customer")
-      .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
       .where("conversation.adminId = :adminId", { adminId });
+
+    if (hasAccountFilter) {
+      qb.innerJoinAndMapOne(
+        "conversation.lastMessage",
+        WhatsappMessageEntity,
+        "lastMessage",
+        `lastMessage.id = (
+          SELECT account_message.id
+          FROM "whatsapp_messages" account_message
+          WHERE account_message."conversationId" = conversation.id
+            AND account_message."adminId" = :adminId
+            AND account_message."accountId" = :accountId
+          ORDER BY account_message."createdAt" DESC, account_message.id DESC
+          LIMIT 1
+        )`,
+        { accountId },
+      );
+    } else {
+      qb.leftJoinAndSelect("conversation.lastMessage", "lastMessage");
+    }
 
     // Filters
     if (q?.status) {
@@ -442,12 +477,15 @@ export class ConversationService {
       status: "conversation.status",
     };
 
-    const sortCol = sortColumns[sortBy] || "conversation.lastMessageAt";
+    const cursorSortCol = hasAccountFilter && sortBy === "lastMessageAt"
+      ? "lastMessage.createdAt"
+      : sortColumns[sortBy] || "conversation.lastMessageAt";
+    const sortCol = cursorSortCol;
     if (cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
 
       qb.andWhere(
-        `(${sortCol}, conversation.id) ${operator} (:cursorValue, :cursorId)`,
+        `(${cursorSortCol}, conversation.id) ${operator} (:cursorValue, :cursorId)`,
         {
           cursorValue: cursor.value,
           cursorId: cursor.id,
@@ -460,6 +498,11 @@ export class ConversationService {
     qb.addOrderBy("conversation.id", sortDir);
 
     const recordsWithExtra = await qb.take(limit + 1).getMany();
+    if (hasAccountFilter) {
+      recordsWithExtra.forEach((record) => {
+        record.lastMessageAt = record.lastMessage.createdAt;
+      });
+    }
     const hasMore = recordsWithExtra.length > limit;
     const records = hasMore
       ? recordsWithExtra.slice(0, limit)

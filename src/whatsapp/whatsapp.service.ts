@@ -2926,9 +2926,15 @@ export class WhatsappService {
 
     const cursor = q?.cursor;
 
-    const { finalStartDate, finalEndDate } = this.getDashboardDateRange(
-      q || {},
-    );
+    const { finalStartDate, finalEndDate } = this.getDashboardDateRange({
+      ...(q || {}),
+      // A conversation window is message history, not a dashboard report.
+      // Do not silently hide messages older than the dashboard's 30-day default.
+      skipDefaultRange:
+        !!q?.conversationId ||
+        q?.skipDefaultRange === true ||
+        q?.skipDefaultRange === "true",
+    });
 
     const qb = this.messageRepo
       .createQueryBuilder("message")
@@ -2952,15 +2958,21 @@ export class WhatsappService {
       .where("message.adminId = :adminId", { adminId })
       .andWhere("message.messageType != :reactionType", {
         reactionType: WhatsappMessageType.REACTION,
-      })
-      .andWhere(
+      });
+
+    if (finalStartDate) {
+      qb.andWhere(
         "COALESCE(message.sentAt, message.createdAt) >= :finalStartDate",
         { finalStartDate },
-      )
-      .andWhere(
+      );
+    }
+
+    if (finalEndDate) {
+      qb.andWhere(
         "COALESCE(message.sentAt, message.createdAt) <= :finalEndDate",
         { finalEndDate },
       );
+    }
 
     if (options?.includeSenderRelations) {
       this.selectMessageSender(qb);

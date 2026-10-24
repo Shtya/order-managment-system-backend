@@ -61,8 +61,8 @@ export class ConversationController {
 
   @Get("counts")
   @Permissions("conversation.read")
-  getTabCounts(@Req() req: any) {
-    return this.conversationService.getTabCounts(req.user);
+  getTabCounts(@Req() req: any, @Query("accountId") accountId?: string) {
+    return this.conversationService.getTabCounts(req.user, accountId);
   }
 
   @Patch(":id/ai")
