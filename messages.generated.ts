@@ -574,6 +574,11 @@ export type I18nTranslations = {
         "customer": {
             "not_found": string;
             "address_not_found": string;
+            "invalid_shipping_provider": string;
+            "shipping_city_required": string;
+            "shipping_provider_city_required": string;
+            "shipping_zone_required": string;
+            "shipping_district_required": string;
             "phone_already_exists": string;
             "export_sheet": string;
             "export_addresses_sheet": string;

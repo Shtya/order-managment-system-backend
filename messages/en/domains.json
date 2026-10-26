@@ -191,6 +191,11 @@
   "customer": {
     "not_found": "Customer not found",
     "address_not_found": "Customer address not found",
+    "invalid_shipping_provider": "Unsupported shipping provider for this address",
+    "shipping_city_required": "City is required for this shipping provider",
+    "shipping_provider_city_required": "Provider city is required for this shipping provider",
+    "shipping_zone_required": "Zone is required for this shipping provider",
+    "shipping_district_required": "District is required for this shipping provider",
     "phone_already_exists": "Customer with this phone number already exists: {phoneNumber}",
     "export_sheet": "Customers",
     "export_addresses_sheet": "Customer Addresses",

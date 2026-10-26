@@ -62,9 +62,26 @@ const saveClientAddressFields = toolInputFor<UpdateClientAddressDto>()(
   z.object({
     label: z.string().optional().describe("Short label, e.g. Home or Work"),
     address: z.string().optional().describe("Street / full address text. Required for create"),
-    cityId: uuidField(idDescription("City id.", TOOL.cities.list)).optional(),
-    areaId: uuidField(idDescription("Area id.", TOOL.cities.areas)).optional(),
+    cityId: uuidField(idDescription("Madar city id.", TOOL.cities.list)).optional(),
+    areaId: uuidField(idDescription("Madar area id for system addresses.", TOOL.cities.areas)).optional(),
+    city: z.string().optional().describe("City display name. Optional when cityId is sent."),
+    area: z.string().optional().describe("Area / zone display text. For Bosta this is zone, district."),
     landmark: z.string().optional().describe("Nearby landmark"),
+    shippingProvider: z
+      .enum(["none", "bosta", "turbo"])
+      .optional()
+      .describe(
+        `none = Madar city/area. bosta/turbo = carrier geo. Provider code from ${ref(TOOL.shippingCompanies.list)} row.provider. Bosta needs shippingMetadata.cityId (provider city id) and districtId from ${ref(TOOL.shippingCompanies.geo)}. Turbo needs shippingMetadata.cityId and zoneId.`,
+      ),
+    shippingMetadata: z
+      .object({
+        cityId: z.string().optional().describe(`Provider city id from ${ref(TOOL.cities.list)} with provider=, not the Madar city UUID.`),
+        zoneId: z.string().optional().describe(`Turbo zone id from ${ref(TOOL.shippingCompanies.geo)} kind=zones.`),
+        districtId: z.string().optional().describe(`Bosta district id from ${ref(TOOL.shippingCompanies.geo)} kind=districts.`),
+        locationId: z.string().optional().describe("Optional provider location id"),
+      })
+      .optional()
+      .describe("Carrier geo ids. Required for bosta/turbo. Omit for none."),
     isDefault: z
       .boolean()
       .optional()
@@ -133,6 +150,8 @@ function toAddressDto(a: any) {
     areaId: a.areaId ?? null,
     area: a.area ?? null,
     areaName: a.areaDetails?.nameEn ?? a.areaDetails?.nameAr ?? null,
+    shippingProvider: a.shippingProvider ?? null,
+    shippingMetadata: a.shippingMetadata ?? null,
     isDefault: Boolean(a.isDefault),
   };
 }
@@ -282,7 +301,7 @@ export class McpClientsTools {
   @McpSaveTool({
     name: TOOL.clients.addressSave,
     description:
-      'Create or update a client address. Required: mode ("create" or "update") and clientId. Required for create: address. Optional: label, cityId, areaId, landmark, isDefault. For update: `id` (address id from clients_search) plus any fields. isDefault=true unsets default on the client\'s other addresses.',
+      'Create or update a client address. Required: mode ("create" or "update") and clientId. Required for create: address. Optional: label, cityId (Madar UUID), areaId (system addresses), city, area, landmark, shippingProvider (none|bosta|turbo), shippingMetadata (provider cityId/zoneId/districtId), isDefault. Bosta needs shippingMetadata.cityId + districtId from shipping_geo; Turbo needs cityId + zoneId. For update: `id` (address id from clients_search) plus any fields. isDefault=true unsets default on the client\'s other addresses.',
     parameters: saveClientAddressInput,
   })
   async saveClientAddress(

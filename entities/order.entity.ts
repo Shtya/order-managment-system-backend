@@ -23,7 +23,7 @@ import { OrderCollectionEntity } from "./order-collection.entity";
 import { MonthlyClosingEntity } from "./accounting.entity";
 import { ActivatableEntity } from "./base.entity";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
-import { CityEntity } from "./cities.entity";
+import { AreaEntity, CityEntity } from "./cities.entity";
 import { OrderAssignmentEntity } from "./assignment.entity";
 import { BundleEntity } from "./bundle.entity";
 import {
@@ -280,6 +280,13 @@ export class OrderEntity {
 
   @Column({ type: "varchar", length: 100, nullable: true })
   area?: string;
+
+  @Column({ type: "uuid", nullable: true })
+  areaId?: string | null;
+
+  @ManyToOne(() => AreaEntity, { eager: true, nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "areaId" })
+  areaDetails?: AreaEntity | null;
 
   @Column({ type: "uuid", nullable: true })
   clientId?: string;

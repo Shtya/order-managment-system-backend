@@ -2,6 +2,7 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -12,6 +13,7 @@ import {
 import { plainToInstance, Transform, Type } from "class-transformer";
 import { PartialType } from "@nestjs/mapped-types";
 import { i18nValidationMessage } from "nestjs-i18n";
+import { ShippingMetadataDto } from "./order.dto";
 
 
 
@@ -99,8 +101,30 @@ export class CreateClientAddressDto {
 
   @IsString({ message: i18nValidationMessage("validation.is_string") })
   @IsOptional()
+  @MaxLength(100, { message: i18nValidationMessage("validation.max_length") })
+  city?: string;
+
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @IsOptional()
+  @MaxLength(100, { message: i18nValidationMessage("validation.max_length") })
+  area?: string;
+
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @IsOptional()
   @MaxLength(200, { message: i18nValidationMessage("validation.max_length") })
   landmark?: string;
+
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @IsIn(["none", "bosta", "turbo"], {
+    message: i18nValidationMessage("validation.is_enum"),
+  })
+  shippingProvider?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ShippingMetadataDto)
+  shippingMetadata?: ShippingMetadataDto;
 
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
   @IsOptional()

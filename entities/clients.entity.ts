@@ -120,6 +120,7 @@ export class ClientEntity {
 }
 
 @Index(["clientId", "isDefault"])
+@Index(["adminId", "clientId"])
 @Entity("client_addresses")
 export class ClientAddressEntity {
   @PrimaryGeneratedColumn("uuid")
@@ -171,6 +172,17 @@ export class ClientAddressEntity {
 
   @Column({ type: "varchar", length: 200, nullable: true })
   landmark?: string;
+
+  @Column({ type: "varchar", length: 50, nullable: true })
+  shippingProvider?: string | null;
+
+  @Column({ type: "jsonb", nullable: true })
+  shippingMetadata?: {
+    cityId?: string;
+    districtId?: string;
+    zoneId?: string;
+    locationId?: string;
+  } | null;
 
   @Column({ type: "boolean", default: false })
   isDefault: boolean;

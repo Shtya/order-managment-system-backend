@@ -191,6 +191,11 @@
   "customer": {
     "not_found": "العميل غير موجود",
     "address_not_found": "عنوان العميل غير موجود",
+    "invalid_shipping_provider": "شركة الشحن غير مدعومة لهذا العنوان",
+    "shipping_city_required": "المدينة مطلوبة لشركة الشحن هذه",
+    "shipping_provider_city_required": "مدينة شركة الشحن مطلوبة لهذه الشركة",
+    "shipping_zone_required": "المنطقة مطلوبة لشركة الشحن هذه",
+    "shipping_district_required": "الحي مطلوب لشركة الشحن هذه",
     "phone_already_exists": "يوجد عميل مسجل بهذا الرقم بالفعل: {phoneNumber}",
     "export_sheet": "العملاء",
     "export_addresses_sheet": "عناوين العملاء",

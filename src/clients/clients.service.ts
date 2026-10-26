@@ -10,6 +10,12 @@
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, DataSource, EntityManager, In, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { ClientAddressEntity, ClientEntity, ClientStatus } from "entities/clients.entity";
+import {
+  clientAddressGeoMissingField,
+  isClientAddressGeoProvider,
+  normalizeClientAddressProvider,
+  sanitizeClientAddressShippingMetadata,
+} from "./client-address.geo";
 import { CustomerEntity } from "entities/customers.entity";
 import { AreaEntity, CityEntity } from "entities/cities.entity";
 import { OrderEntity, OrderStatus, OrderStatusEntity } from "entities/order.entity";
@@ -1028,6 +1034,74 @@ export class ClientService {
     address.area = area?.nameAr ?? "";
   }
 
+  private normalizeAddressText(value?: string | null): string {
+    return String(value ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  private resolveAddressProvider(value?: string | null): string | null {
+    const provider = normalizeClientAddressProvider(value);
+    if (provider && !isClientAddressGeoProvider(provider)) {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.invalid_shipping_provider"),
+      );
+    }
+    return provider;
+  }
+
+  private assertGeoAddressPayload(
+    provider: string | null,
+    cityId?: string | null,
+    metadata?: ReturnType<typeof sanitizeClientAddressShippingMetadata>,
+  ) {
+    if (!provider) return;
+    if (!cityId) {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.shipping_city_required"),
+      );
+    }
+    const missing = clientAddressGeoMissingField(provider, metadata);
+    if (missing === "providerCityId") {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.shipping_provider_city_required"),
+      );
+    }
+    if (missing === "zoneId") {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.shipping_zone_required"),
+      );
+    }
+    if (missing === "districtId") {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.shipping_district_required"),
+      );
+    }
+  }
+
+  private assignGeoAddress(
+    address: ClientAddressEntity,
+    city: CityEntity,
+    payload: { city?: string; area?: string },
+    provider: string,
+    metadata: ReturnType<typeof sanitizeClientAddressShippingMetadata>,
+  ) {
+    address.cityDetails = city;
+    address.cityId = city.id;
+    address.city =
+      this.normalizeAddressText(payload.city) || city.nameAr || city.nameEn || "";
+    address.areaDetails = null;
+    address.areaId = null;
+    address.area = this.normalizeAddressText(payload.area);
+    address.shippingProvider = provider;
+    address.shippingMetadata = metadata;
+  }
+
+  private assignSystemAddressProvider(address: ClientAddressEntity) {
+    address.shippingProvider = null;
+    address.shippingMetadata = null;
+  }
+
   async findAllAddresses(me: any, clientId: string) {
     const { adminId } = await this.findClientOrThrow(me, clientId);
     return this.findAddressesForAdmin(adminId, clientId);
@@ -1043,7 +1117,9 @@ export class ClientService {
   async createAddress(me: any, clientId: string, payload: CreateClientAddressDto) {
     return this.runInTransaction(undefined, async (mgr) => {
       const { client, adminId } = await this.findClientOrThrow(me, clientId, mgr);
-      const { city, area } = await this.loadCityAndArea(mgr, payload.cityId, payload.areaId);
+      const provider = this.resolveAddressProvider(payload.shippingProvider);
+      const metadata = sanitizeClientAddressShippingMetadata(payload.shippingMetadata);
+      this.assertGeoAddressPayload(provider, payload.cityId, metadata);
       const repo = mgr.getRepository(ClientAddressEntity);
       const address = repo.create({
         adminId,
@@ -1053,7 +1129,17 @@ export class ClientService {
         landmark: payload.landmark,
         isDefault: payload.isDefault ?? false,
       });
-      this.assignCityAndArea(address, city, area);
+      if (provider) {
+        const { city } = await this.loadCityAndArea(mgr, payload.cityId, null);
+        if (!city) {
+          throw new NotFoundException(this.translations.t("domains.cities.not_found"));
+        }
+        this.assignGeoAddress(address, city, payload, provider, metadata);
+      } else {
+        const { city, area } = await this.loadCityAndArea(mgr, payload.cityId, payload.areaId);
+        this.assignCityAndArea(address, city, area);
+        this.assignSystemAddressProvider(address);
+      }
       if (address.isDefault) {
         await this.clearDefaultAddress(adminId, client.id, mgr);
       }
@@ -1072,13 +1158,46 @@ export class ClientService {
       if (payload.address !== undefined) address.address = payload.address;
       if (payload.landmark !== undefined) address.landmark = payload.landmark;
       if (payload.isDefault !== undefined) address.isDefault = payload.isDefault;
-      if (payload.cityId !== undefined || payload.areaId !== undefined) {
+      const nextProvider =
+        payload.shippingProvider !== undefined
+          ? this.resolveAddressProvider(payload.shippingProvider)
+          : normalizeClientAddressProvider(address.shippingProvider);
+      const nextMetadata =
+        payload.shippingMetadata !== undefined
+          ? sanitizeClientAddressShippingMetadata(payload.shippingMetadata)
+          : sanitizeClientAddressShippingMetadata(address.shippingMetadata);
+      const nextCityId =
+        payload.cityId !== undefined ? payload.cityId : address.cityId;
+      if (payload.shippingProvider !== undefined || payload.shippingMetadata !== undefined) {
+        this.assertGeoAddressPayload(nextProvider, nextCityId, nextMetadata);
+      }
+      if (nextProvider) {
+        const { city } = await this.loadCityAndArea(mgr, nextCityId, null);
+        if (!city) {
+          throw new NotFoundException(this.translations.t("domains.cities.not_found"));
+        }
+        this.assignGeoAddress(
+          address,
+          city,
+          {
+            city: payload.city !== undefined ? payload.city : address.city,
+            area: payload.area !== undefined ? payload.area : address.area,
+          },
+          nextProvider,
+          nextMetadata,
+        );
+      } else if (
+        payload.cityId !== undefined ||
+        payload.areaId !== undefined ||
+        payload.shippingProvider !== undefined
+      ) {
         const { city, area } = await this.loadCityAndArea(
           mgr,
           payload.cityId !== undefined ? payload.cityId : address.cityId,
           payload.areaId !== undefined ? payload.areaId : address.areaId,
         );
         this.assignCityAndArea(address, city, area);
+        this.assignSystemAddressProvider(address);
       }
       return repo.save(address);
     });

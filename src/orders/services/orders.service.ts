@@ -114,7 +114,12 @@ import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 import { CustomerEntity } from "entities/customers.entity";
-import { ClientEntity } from "entities/clients.entity";
+import { ClientAddressEntity, ClientEntity } from "entities/clients.entity";
+import {
+  isClientAddressGeoProvider,
+  normalizeClientAddressProvider,
+  sanitizeClientAddressShippingMetadata,
+} from "src/clients/client-address.geo";
 import {
   applyThinClientOrderStats,
   ClientOrderStatsService,
@@ -340,6 +345,12 @@ export class OrdersService {
 
     const historyRepo = params.manager.getRepository(OrderStatusHistoryEntity);
 
+    await this.copyFirstDeliveredAddresses({
+      adminId,
+      changes: [{ orderId: params.orderId, toStatusId: params.toStatusId }],
+      manager: params.manager,
+    });
+
     const log = historyRepo.create({
       adminId,
       orderId: params.orderId,
@@ -436,6 +447,11 @@ export class OrdersService {
     manager: EntityManager;
   }) {
     const historyRepo = params.manager.getRepository(OrderStatusHistoryEntity);
+    await this.copyFirstDeliveredAddresses({
+      adminId: params.adminId,
+      changes: params.orderStatusChanges,
+      manager: params.manager,
+    });
     const logs = params.orderStatusChanges.map((change) => {
       return historyRepo.create({
         adminId: params.adminId,
@@ -469,6 +485,286 @@ export class OrdersService {
     });
 
     await Promise.allSettled(promises);
+  }
+
+  private normalizeClientAddressPart(value?: string | null): string {
+    return String(value ?? "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  }
+
+  private clientAddressIdentity(address: {
+    address?: string | null;
+    city?: string | null;
+    area?: string | null;
+    shippingProvider?: string | null;
+    shippingMetadata?: {
+      cityId?: string;
+      zoneId?: string;
+      districtId?: string;
+    } | null;
+  }): string {
+    const provider =
+      normalizeClientAddressProvider(address.shippingProvider) ?? "none";
+    const metadata = sanitizeClientAddressShippingMetadata(
+      address.shippingMetadata,
+    );
+    return [
+      provider,
+      address.address,
+      address.city,
+      address.area,
+      metadata?.cityId,
+      metadata?.zoneId,
+      metadata?.districtId,
+    ]
+      .map((part) => this.normalizeClientAddressPart(part))
+      .join("\u0000");
+  }
+
+  private async copyFirstDeliveredAddresses(params: {
+    adminId: string;
+    changes: Array<{ orderId: string; toStatusId: string }>;
+    manager: EntityManager;
+  }): Promise<void> {
+    if (!params.changes.length) return;
+
+    const deliveredStatus = await params.manager
+      .getRepository(OrderStatusEntity)
+      .findOne({
+        where: { code: OrderStatus.DELIVERED },
+        select: { id: true },
+      });
+    if (!deliveredStatus) return;
+
+    const candidateOrderIds = [
+      ...new Set(
+        params.changes
+          .filter((change) => change.toStatusId === deliveredStatus.id)
+          .map((change) => change.orderId),
+      ),
+    ];
+    if (!candidateOrderIds.length) return;
+
+    const previousDelivered = await params.manager
+      .getRepository(OrderStatusHistoryEntity)
+      .createQueryBuilder("history")
+      .innerJoin("history.toStatus", "toStatus", "toStatus.code = :deliveredCode", {
+        deliveredCode: OrderStatus.DELIVERED,
+      })
+      .select("history.orderId", "orderId")
+      .where("history.adminId = :adminId", { adminId: params.adminId })
+      .andWhere("history.orderId IN (:...orderIds)", {
+        orderIds: candidateOrderIds,
+      })
+      .getRawMany<{ orderId: string }>();
+    const previouslyDeliveredOrderIds = new Set(
+      previousDelivered.map((row) => row.orderId),
+    );
+    const firstDeliveryOrderIds = candidateOrderIds.filter(
+      (orderId) => !previouslyDeliveredOrderIds.has(orderId),
+    );
+    if (!firstDeliveryOrderIds.length) return;
+
+    const orders = await params.manager.getRepository(OrderEntity).find({
+      where: {
+        adminId: params.adminId,
+        id: In(firstDeliveryOrderIds),
+        clientId: Not(IsNull()),
+      },
+      select: {
+        id: true,
+        adminId: true,
+        clientId: true,
+        address: true,
+        city: true,
+        cityId: true,
+        area: true,
+        areaId: true,
+        landmark: true,
+        shippingCompanyId: true,
+        shippingMetadata: true,
+        deliveredAt: true,
+        updated_at: true,
+      },
+    });
+    const eligibleOrders = orders
+      .filter((order) => this.normalizeClientAddressPart(order.address))
+      .sort((left, right) => {
+        const leftDate = left.deliveredAt ?? left.updated_at;
+        const rightDate = right.deliveredAt ?? right.updated_at;
+        return rightDate.getTime() - leftDate.getTime();
+      });
+    if (!eligibleOrders.length) return;
+
+    const requestedClientIds = [
+      ...new Set(eligibleOrders.map((order) => order.clientId)),
+    ].sort();
+    const lockedClients = await params.manager
+      .getRepository(ClientEntity)
+      .createQueryBuilder("client")
+      .select(["client.id"])
+      .where("client.adminId = :adminId", { adminId: params.adminId })
+      .andWhere("client.id IN (:...clientIds)", { clientIds: requestedClientIds })
+      .orderBy("client.id", "ASC")
+      .setLock("pessimistic_write")
+      .getMany();
+    const validClientIds = new Set(lockedClients.map((client) => client.id));
+    if (!validClientIds.size) return;
+
+    const requestedCompanyIds = [
+      ...new Set(
+        eligibleOrders
+          .map((order) => order.shippingCompanyId)
+          .filter((companyId): companyId is string => !!companyId),
+      ),
+    ];
+    const providerByCompanyId = new Map<string, string>();
+    if (requestedCompanyIds.length) {
+      const companies = await params.manager
+        .getRepository(ShippingCompanyEntity)
+        .find({
+          where: { id: In(requestedCompanyIds) },
+          select: { id: true, code: true },
+        });
+      companies.forEach((company) => {
+        const code = normalizeClientAddressProvider(company.code);
+        if (code) providerByCompanyId.set(company.id, code);
+      });
+    }
+    const orderProvider = (order: OrderEntity) => {
+      const code = order.shippingCompanyId
+        ? providerByCompanyId.get(order.shippingCompanyId) ?? null
+        : null;
+      return isClientAddressGeoProvider(code) ? code : null;
+    };
+
+    const addressRepo = params.manager.getRepository(ClientAddressEntity);
+    const existingAddresses = await addressRepo.find({
+      where: {
+        adminId: params.adminId,
+        clientId: In([...validClientIds]),
+      },
+      select: {
+        clientId: true,
+        address: true,
+        city: true,
+        area: true,
+        shippingProvider: true,
+        shippingMetadata: true,
+      },
+    });
+    const identities = new Set(
+      existingAddresses.map(
+        (address) =>
+          `${address.clientId}\u0001${this.clientAddressIdentity(address)}`,
+      ),
+    );
+    const newAddresses: ClientAddressEntity[] = [];
+
+    const systemOrders = eligibleOrders.filter((order) => !orderProvider(order));
+    const requestedAreaIds = [
+      ...new Set(
+        systemOrders
+          .map((order) => order.areaId)
+          .filter((areaId): areaId is string => !!areaId),
+      ),
+    ];
+    const areaRepo = params.manager.getRepository(AreaEntity);
+    const areasById = new Map<string, AreaEntity>();
+    if (requestedAreaIds.length) {
+      const areas = await areaRepo.find({ where: { id: In(requestedAreaIds) } });
+      areas.forEach((area) => areasById.set(area.id, area));
+    }
+
+    const requestedAreaNames = [
+      ...new Set(
+        systemOrders
+          .filter((order) => !order.areaId)
+          .map((order) => this.normalizeClientAddressPart(order.area))
+          .filter(Boolean),
+      ),
+    ];
+    const areasByName = new Map<string, AreaEntity[]>();
+    if (requestedAreaNames.length) {
+      const areas = await areaRepo
+        .createQueryBuilder("area")
+        .where(
+          `LOWER(REGEXP_REPLACE(TRIM(area.nameEn), '\\s+', ' ', 'g')) IN (:...areaNames)`,
+          { areaNames: requestedAreaNames },
+        )
+        .orWhere(
+          `LOWER(REGEXP_REPLACE(TRIM(area.nameAr), '\\s+', ' ', 'g')) IN (:...areaNames)`,
+          { areaNames: requestedAreaNames },
+        )
+        .orderBy("area.id", "ASC")
+        .getMany();
+      areas.forEach((area) => {
+        for (const name of [area.nameEn, area.nameAr]) {
+          const key = this.normalizeClientAddressPart(name);
+          const matches = areasByName.get(key) ?? [];
+          matches.push(area);
+          areasByName.set(key, matches);
+        }
+      });
+    }
+
+    for (const order of eligibleOrders) {
+      if (!validClientIds.has(order.clientId)) continue;
+      const shippingProvider = orderProvider(order);
+      const shippingMetadata = shippingProvider
+        ? sanitizeClientAddressShippingMetadata(order.shippingMetadata)
+        : null;
+      const normalizedAreaName = this.normalizeClientAddressPart(order.area);
+      const nameMatches =
+        !shippingProvider && !order.areaId
+          ? areasByName.get(normalizedAreaName) ?? []
+          : [];
+      const resolvedArea = shippingProvider
+        ? null
+        : order.areaId
+          ? areasById.get(order.areaId) ?? null
+          : nameMatches.find((area) => area.cityId === order.cityId) ??
+            nameMatches[0] ??
+            null;
+      const resolvedAreaName = resolvedArea
+        ? resolvedArea.nameAr || resolvedArea.nameEn
+        : order.area;
+      const identitySource = {
+        address: order.address,
+        city: order.city,
+        area: resolvedAreaName,
+        shippingProvider,
+        shippingMetadata,
+      };
+      const rawIdentity = `${order.clientId}\u0001${this.clientAddressIdentity({
+        ...identitySource,
+        area: order.area,
+      })}`;
+      const resolvedIdentity = `${order.clientId}\u0001${this.clientAddressIdentity(identitySource)}`;
+      if (identities.has(rawIdentity) || identities.has(resolvedIdentity)) continue;
+      identities.add(rawIdentity);
+      identities.add(resolvedIdentity);
+      newAddresses.push(
+        addressRepo.create({
+          adminId: params.adminId,
+          clientId: order.clientId,
+          label: null,
+          address: order.address.trim().replace(/\s+/g, " "),
+          city: String(order.city ?? "").trim().replace(/\s+/g, " "),
+          cityId: order.cityId ?? null,
+          area: String(resolvedAreaName ?? "").trim().replace(/\s+/g, " "),
+          areaId: resolvedArea?.id ?? null,
+          landmark: order.landmark?.trim() || null,
+          shippingProvider,
+          shippingMetadata,
+          isDefault: false,
+        }),
+      );
+    }
+
+    if (newAddresses.length) await addressRepo.save(newAddresses);
   }
 
   // ========================================
@@ -5103,6 +5399,7 @@ export class OrdersService {
       city: cityName,
       cityId: dto.cityId,
       area: areaName,
+      areaId: dto.areaId ?? null,
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
       landmark: dto.landmark,
@@ -5604,6 +5901,7 @@ export class OrdersService {
         city: dto.city !== undefined ? dto.city : order.city,
         cityId: !!dto.cityId ? dto.cityId : order.cityId,
         area: nextArea !== undefined ? nextArea : order.area,
+        areaId: dto.areaId !== undefined ? dto.areaId : order.areaId,
         latitude:
           dto.latitude !== undefined ? dto.latitude : order.latitude,
         longitude:
