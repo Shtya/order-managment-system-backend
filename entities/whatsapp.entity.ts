@@ -325,6 +325,42 @@ export class ConversationEntity {
     messages: WhatsappMessageEntity[];
 }
 
+@Index(['adminId'])
+@Index(['adminId', 'userId'])
+@Index(['adminId', 'conversationId', 'userId'], { unique: true })
+@Entity('conversation_user_access')
+export class ConversationUserAccessEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Column({ type: 'uuid' })
+    adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'adminId' })
+    admin: Relation<User>;
+
+    @Column({ type: 'uuid' })
+    conversationId: string;
+
+    @ManyToOne(() => ConversationEntity, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'conversationId' })
+    conversation: Relation<ConversationEntity>;
+
+    @Column({ type: 'uuid' })
+    userId: string;
+
+    @ManyToOne(() => User, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'userId' })
+    user: Relation<User>;
+
+    @CreateDateColumn({ type: 'timestamptz' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamptz' })
+    updatedAt: Date;
+}
+
 @Index(
   ["adminId", "wabaId", "phoneNumberId"],
   {

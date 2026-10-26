@@ -41,6 +41,11 @@ export type I18nTranslations = {
             "conversation_delete": string;
             "conversation_read": string;
             "conversation_update": string;
+            "contacts_create": string;
+            "contacts_delete": string;
+            "contacts_read": string;
+            "contacts_update": string;
+            "customer_create": string;
             "customer_delete": string;
             "customer_getOnly": string;
             "customer_read": string;

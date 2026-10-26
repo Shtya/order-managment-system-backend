@@ -158,7 +158,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             const activeConnections = await this.redisClient.incr(`user_sockets:${userId}`);
             await this.redisClient.sAdd('online_users', userId);
 
-            console.log(`User ${user.name} connected on PID ${process.pid}. Total tabs open: ${activeConnections}`);
+            this.logger.log(`User connected userId=${userId} pid=${process.pid} activeConnections=${activeConnections}`);
 
             // Only broadcast "online" on the user's FIRST tab/device connection
             if (activeConnections === 1) {
@@ -173,7 +173,10 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 timestamp: new Date(),
             });
         } catch (error: any) {
-            console.error('Socket Auth Error:', error.message);
+            this.logger.error(
+                "Socket authentication failed",
+                error instanceof Error ? error.stack : String(error),
+            );
             socket.disconnect();
         }
     }
@@ -188,7 +191,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             // FIX 3: Decrement total connection count across cluster
             const remainingConnections = await this.redisClient.decr(`user_sockets:${userId}`);
 
-            console.log(`User ${user.name} disconnected from PID ${process.pid}. Remaining tabs: ${remainingConnections}`);
+            this.logger.log(`User disconnected userId=${userId} pid=${process.pid} remainingConnections=${remainingConnections}`);
             // Only broadcast "offline" when ALL tabs/devices are closed
             if (remainingConnections <= 0) {
                 await this.redisClient.del(`user_sockets:${userId}`);
@@ -466,7 +469,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // --- Helper Methods ---
 
     private broadcastStatus(userId: string, status: 'online' | 'offline') {
-        console.log(`Broadcasting user:status for user ${userId} - status: ${status}`);
+        this.logger.debug(`Broadcasting user status userId=${userId} status=${status}`);
         // Emit to everyone connected to the server
         this.server.emit('user:status', {
             userId,

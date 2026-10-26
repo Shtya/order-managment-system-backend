@@ -674,8 +674,6 @@ export class UsersService {
   private ensureAdminOwnership(me: User, target: User) {
     if (this.isSuperAdmin(me)) return;
 
-    console.log(me, target);
-
     if (me.id === target.id) return;
 
     if (me.role?.name === SystemRole.ADMIN) {

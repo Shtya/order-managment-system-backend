@@ -4,6 +4,7 @@ vi.mock("entities/whatsapp.entity", () => ({
   ConversationEntity: class {},
   WhatsappMessageEntity: class {},
   UserWhatsappAccountAccessEntity: class {},
+  ConversationUserAccessEntity: class {},
   ConversationAiMode: {},
   ConversationStatus: { OPEN: "open", ARCHIVED: "archived" },
   MessageDirection: {},
@@ -93,5 +94,83 @@ describe("ConversationService contact/conversation statistics", () => {
         },
       ],
     });
+  });
+});
+
+describe("ConversationService.getOrCreateConversationByCustomerId", () => {
+  test("preserves direct access for each employee who adds the same contact", async () => {
+    const { ConversationService } = await import("./conversation.service");
+    const {
+      ConversationEntity,
+      ConversationUserAccessEntity,
+      UserWhatsappAccountAccessEntity,
+    } = await import("entities/whatsapp.entity");
+    void ConversationService.prototype.getOrCreateConversationByCustomerId;
+
+    const memberships = new Set<string>();
+    const conversation = {
+      id: "conversation-1",
+      adminId: "admin-1",
+      customerId: "customer-1",
+      createdAt: new Date("2026-10-26T00:00:00.000Z"),
+      lastMessage: null,
+    };
+    const customerRepo = {
+      findOne: vi.fn().mockResolvedValue({ id: "customer-1", adminId: "admin-1" }),
+    };
+    const conversationRepo = {
+      createQueryBuilder: () => ({
+        insert() { return this; },
+        into() { return this; },
+        values() { return this; },
+        orIgnore() { return this; },
+        returning() { return this; },
+        execute: vi.fn().mockResolvedValue({ raw: [] }),
+      }),
+      findOne: vi.fn().mockResolvedValue(conversation),
+    };
+    const directAccessRepo = {
+      createQueryBuilder: () => ({
+        insert() { return this; },
+        values(value: { userId: string }) {
+          memberships.add(value.userId);
+          return this;
+        },
+        orIgnore() { return this; },
+        execute: vi.fn().mockResolvedValue({}),
+      }),
+    };
+    const manager = {
+      getRepository: (entity: any) => {
+        if (entity === ConversationEntity) return conversationRepo;
+        if (entity === ConversationUserAccessEntity) return directAccessRepo;
+        if (entity === UserWhatsappAccountAccessEntity) return { find: vi.fn().mockResolvedValue([]) };
+        return customerRepo;
+      },
+    };
+    const service = new ConversationService(
+      conversationRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { transaction: (work: any) => work(manager) } as any,
+      { t: (key: string) => key } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    await service.getOrCreateConversationByCustomerId(
+      { id: "employee-1", adminId: "admin-1", role: { name: "user" }, whatsappAccessMode: "selected" },
+      "customer-1",
+    );
+    await service.getOrCreateConversationByCustomerId(
+      { id: "employee-2", adminId: "admin-1", role: { name: "user" }, whatsappAccessMode: "selected" },
+      "customer-1",
+    );
+
+    expect([...memberships]).toEqual(["employee-1", "employee-2"]);
   });
 });

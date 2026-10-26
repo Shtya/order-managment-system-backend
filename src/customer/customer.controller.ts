@@ -47,19 +47,19 @@ export class CustomerController {
   ) {}
 
   @Get()
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   findAllPaginated(@Req() req: any, @Query() q: any) {
     return this.customerService.findAllPaginated(req.user, q);
   }
 
   @Get("stats")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   getStats(@Req() req: any) {
     return this.customerService.getStats(req.user);
   }
 
   @Get("export")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   async exportCustomers(
     @Req() req: any,
     @Res() res: Response,
@@ -78,7 +78,7 @@ export class CustomerController {
   }
 
   @Get("export/addresses")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   async exportAddresses(
     @Req() req: any,
     @Res() res: Response,
@@ -97,19 +97,19 @@ export class CustomerController {
   }
 
   @Get(":id/orders/stats")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   getOrderStats(@Req() req: any, @Param("id") id: string) {
     return this.customerService.getOrderStats(req.user, id);
   }
 
   @Get(":id")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   findOne(@Req() req: any, @Param("id") id: string) {
     return this.customerService.findOne(req.user, id);
   }
 
   @Post()
-  @Permissions("customer.create")
+  @Permissions("contacts.create")
   @UseInterceptors(
     FileInterceptor("profilePicture", { storage: meAvatarStorage }),
   )
@@ -137,7 +137,7 @@ export class CustomerController {
   }
 
   @Patch(":id")
-  @Permissions("customer.update")
+  @Permissions("contacts.update")
   @UseInterceptors(
     FileInterceptor("profilePicture", { storage: meAvatarStorage }),
   )
@@ -156,7 +156,7 @@ export class CustomerController {
   }
 
   @Delete(":id")
-  @Permissions("customer.delete")
+  @Permissions("contacts.delete")
   remove(@Req() req: any, @Param("id") id: string) {
     return this.customerService.remove(req.user, id);
   }
@@ -164,7 +164,7 @@ export class CustomerController {
   // ── Customer Addresses ─────────────────────────────────────────
 
   @Post(":customerId/addresses")
-  @Permissions("customer.update")
+  @Permissions("contacts.update")
   createAddress(
     @Req() req: any,
     @Param("customerId") customerId: string,
@@ -174,7 +174,7 @@ export class CustomerController {
   }
 
   @Get(":customerId/addresses")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   findAllAddresses(
     @Req() req: any,
     @Param("customerId") customerId: string,
@@ -184,7 +184,7 @@ export class CustomerController {
   }
 
   @Get(":customerId/addresses/:addressId")
-  @Permissions("customer.read")
+  @Permissions("contacts.read")
   findOneAddress(
     @Req() req: any,
     @Param("customerId") customerId: string,
@@ -194,7 +194,7 @@ export class CustomerController {
   }
 
   @Patch(":customerId/addresses/:addressId")
-  @Permissions("customer.update")
+  @Permissions("contacts.update")
   updateAddress(
     @Req() req: any,
     @Param("customerId") customerId: string,
@@ -210,7 +210,7 @@ export class CustomerController {
   }
 
   @Patch(":customerId/addresses/:addressId/default")
-  @Permissions("customer.update")
+  @Permissions("contacts.update")
   setDefaultAddress(
     @Req() req: any,
     @Param("customerId") customerId: string,
@@ -224,7 +224,7 @@ export class CustomerController {
   }
 
   @Delete(":customerId/addresses/:addressId/default")
-  @Permissions("customer.update")
+  @Permissions("contacts.update")
   removeDefaultAddress(
     @Req() req: any,
     @Param("customerId") customerId: string,
@@ -238,7 +238,7 @@ export class CustomerController {
   }
 
   @Delete(":customerId/addresses/:addressId")
-  @Permissions("customer.update")
+  @Permissions("contacts.update")
   removeAddress(
     @Req() req: any,
     @Param("customerId") customerId: string,

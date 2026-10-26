@@ -2,7 +2,7 @@ import { forwardRef, Module } from "@nestjs/common";
 import { ConversationService } from "./conversation.service";
 import { ConversationController } from "./conversation.controller";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { ConversationEntity } from "entities/whatsapp.entity";
+import { ConversationEntity, ConversationUserAccessEntity } from "entities/whatsapp.entity";
 import {
   WhatsappAccountEntity,
   WhatsappMessageEntity,
@@ -23,6 +23,7 @@ import { IssueModule } from "src/issue/issue.module";
       WhatsappMessageEntity,
       CustomerEntity,
       ConversationEntity,
+      ConversationUserAccessEntity,
       UserWhatsappAccountAccessEntity,
     ]),
   ],
