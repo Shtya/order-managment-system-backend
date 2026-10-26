@@ -36,7 +36,9 @@ import {
   MessageActionStatus,
   MessageSendSource,
   WhatsappMessageOriginIds,
+  UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
+import { SystemRole, WhatsappAccessMode } from "entities/user.entity";
 import {
   AutomationFlowEntity,
   AutomationRunEntity,
@@ -144,6 +146,8 @@ export class WhatsappService {
     private readonly accountRepo: Repository<WhatsappAccountEntity>,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(UserWhatsappAccountAccessEntity)
+    private readonly accessRepo: Repository<UserWhatsappAccountAccessEntity>,
     @InjectRepository(WhatsappWebhookEventEntity)
     private readonly webhookRepo: Repository<WhatsappWebhookEventEntity>,
     @InjectRepository(WhatsappTemplateEntity)
@@ -181,6 +185,24 @@ export class WhatsappService {
     @Inject(forwardRef(() => AgentTurnQueueService))
     private readonly agentTurnQueueService: AgentTurnQueueService,
   ) {}
+
+  private async allowedAccountIds(me: any): Promise<string[] | null> {
+    if ([SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(me?.role?.name) ||
+      me?.whatsappAccessMode === WhatsappAccessMode.ALL) return null;
+    const adminId = tenantId(me);
+    const rows = await this.accessRepo.find({
+      where: { adminId, userId: me.id },
+      select: { whatsappAccountId: true },
+    });
+    return rows.map((row) => row.whatsappAccountId);
+  }
+
+  private async assertAccountAccess(me: any, accountId: string) {
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds && !allowedIds.includes(accountId)) {
+      throw new NotFoundException(this.translations.t("domains.whatsapp.whatsapp_account_not_found"));
+    }
+  }
 
   async getMessagesByTypeStats(me: any, filters: any = {}) {
     const adminId = tenantId(me);
@@ -768,7 +790,7 @@ export class WhatsappService {
       adminId,
       accountId,
     );
-
+    await this.assertAccountAccess(me, resolvedAccountId);
     let filename = payload.filename;
     // Check cache if it's a URL
     if (url && !payload.file) {
@@ -874,6 +896,7 @@ export class WhatsappService {
       adminId,
       accountId,
     );
+    await this.assertAccountAccess(me, resolvedAccountId);
 
     // STEP 1: get Meta URL
     const mediaInfo = await this.whatsappApi.getMediaUrl(
@@ -916,6 +939,7 @@ export class WhatsappService {
       adminId,
       accountId,
     );
+    await this.assertAccountAccess(me, resolvedAccountId);
 
     return this.whatsappApi.streamMedia(resolvedAccountId, mediaUrl, headers);
   }
@@ -942,6 +966,9 @@ export class WhatsappService {
       adminId,
       accountId,
     );
+    if (sendSource === MessageSendSource.USER) {
+      await this.assertAccountAccess(me, resolvedAccountId);
+    }
 
     // Normalize phone number and manage customer/conversation
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.to);
@@ -1921,6 +1948,7 @@ export class WhatsappService {
         where: { messageId: payload.messageId, adminId },
       });
       if (message && message.direction === MessageDirection.INBOUND) {
+        await this.assertAccountAccess(me, message.accountId);
         // 1. Call Meta API
         try {
           await this.whatsappApi.markMessageAsRead(
@@ -1944,18 +1972,19 @@ export class WhatsappService {
         this.appGateway.emitUpdateMessage(adminId, message);
       }
     } else if (payload.conversationId) {
+      const allowedIds = await this.allowedAccountIds(me);
+      if (allowedIds?.length === 0) return { success: true };
       const conversation = await this.conversationRepo.findOne({
         where: { id: payload.conversationId, adminId },
       });
       if (conversation) {
         // Find latest inbound message to mark as read on Meta
-        const latestInbound = await this.messageRepo.findOne({
-          where: {
-            conversationId: conversation.id,
-            direction: MessageDirection.INBOUND,
-          },
-          order: { createdAt: "DESC" },
-        });
+        const latestInboundQb = this.messageRepo.createQueryBuilder("message")
+          .where("message.conversationId = :conversationId", { conversationId: conversation.id })
+          .andWhere("message.direction = :direction", { direction: MessageDirection.INBOUND })
+          .orderBy("message.createdAt", "DESC");
+        if (allowedIds) latestInboundQb.andWhere("message.accountId IN (:...allowedIds)", { allowedIds });
+        const latestInbound = await latestInboundQb.getOne();
 
         if (latestInbound) {
           try {
@@ -1973,13 +2002,12 @@ export class WhatsappService {
           await this.syncMessageReadStatus(latestInbound);
         }
 
-        if ((conversation.unreadCount || 0) !== 0) {
-          conversation.unreadCount = 0;
-          await this.conversationRepo.save(conversation);
-        }
+        const refreshed = await this.conversationRepo.findOne({
+          where: { id: conversation.id, adminId },
+        });
         this.appGateway.emitConversationRead(adminId, {
           conversationId: conversation.id,
-          unreadCount: 0,
+          unreadCount: refreshed?.unreadCount || 0,
         });
       }
     }
@@ -2004,6 +2032,7 @@ export class WhatsappService {
       .where("conversationId = :conversationId", {
         conversationId: message.conversationId,
       })
+      .andWhere("accountId = :accountId", { accountId: message.accountId })
       .andWhere("direction = :direction", {
         direction: message.direction,
       })
@@ -2886,6 +2915,7 @@ export class WhatsappService {
     });
 
     if (!message) throw new NotFoundException("Message not found");
+    await this.assertAccountAccess(me, message.accountId);
     if (message.direction !== MessageDirection.OUTBOUND) {
       throw new BadRequestException("Can only retry outbound messages");
     }
@@ -2902,8 +2932,17 @@ export class WhatsappService {
     qb: SelectQueryBuilder<WhatsappMessageEntity>,
   ) {
     return qb
-      .leftJoinAndSelect("message.sentByAgent", "sentByAgent")
-      .leftJoinAndSelect("message.sentByUser", "sentByUser");
+      .leftJoin("message.sentByAgent", "sentByAgent")
+      .addSelect([
+        "sentByAgent.id",
+        "sentByAgent.name",
+      ])
+      .leftJoin("message.sentByUser", "sentByUser")
+      .addSelect([
+        "sentByUser.id",
+        "sentByUser.name",
+        "sentByUser.avatarUrl",
+      ]);
   }
 
   async findAllMessages(
@@ -2960,6 +2999,14 @@ export class WhatsappService {
         reactionType: WhatsappMessageType.REACTION,
       });
 
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0) {
+      return { records: [], hasMore: false, limit, nextCursor: undefined, sortBy, sortDir };
+    }
+    if (allowedIds) {
+      qb.andWhere("message.accountId IN (:...allowedIds)", { allowedIds });
+    }
+
     if (finalStartDate) {
       qb.andWhere(
         "COALESCE(message.sentAt, message.createdAt) >= :finalStartDate",
@@ -2974,9 +3021,9 @@ export class WhatsappService {
       );
     }
 
-    if (options?.includeSenderRelations) {
+    // if (options?.includeSenderRelations) {
       this.selectMessageSender(qb);
-    }
+    // }
 
     // Filters
     if (q?.status) {
@@ -3159,6 +3206,8 @@ export class WhatsappService {
         this.translations.t("domains.whatsapp.message_not_found"),
       );
     }
+
+    if (message.accountId) await this.assertAccountAccess(me, message.accountId);
 
     return message;
   }

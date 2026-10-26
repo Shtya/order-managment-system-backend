@@ -14,7 +14,9 @@ import {
   MessageDirection,
   WhatsappMessageEntity,
   WhatsappMessageType,
+  UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
+import { SystemRole, WhatsappAccessMode } from "entities/user.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { CreateConversationDto } from "dto/whatsapp.dto";
 import { CustomerService } from "../customer/customer.service";
@@ -35,6 +37,8 @@ export class ConversationService {
     private readonly conversationRepo: Repository<ConversationEntity>,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(UserWhatsappAccountAccessEntity)
+    private readonly accessRepo: Repository<UserWhatsappAccountAccessEntity>,
     private readonly customerService: CustomerService,
     private readonly appGateway: AppGateway,
     private readonly dataSource: DataSource,
@@ -46,6 +50,17 @@ export class ConversationService {
     @Inject(forwardRef(() => IssueService))
     private readonly issues: IssueService,
   ) { }
+
+  private async allowedAccountIds(me: any): Promise<string[] | null> {
+    if ([SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(me?.role?.name) ||
+      me?.whatsappAccessMode === WhatsappAccessMode.ALL) return null;
+    const adminId = tenantId(me);
+    const rows = await this.accessRepo.find({
+      where: { adminId, userId: me.id },
+      select: { whatsappAccountId: true },
+    });
+    return rows.map((row) => row.whatsappAccountId);
+  }
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
     const adminId = tenantId(me);
@@ -174,6 +189,11 @@ export class ConversationService {
     }
 
     const accountId = String(requestedAccountId ?? "").trim();
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0) return { all: 0, unread: 0, humanHandoff: 0 };
+    if (accountId && accountId !== "all" && allowedIds && !allowedIds.includes(accountId)) {
+      throw new NotFoundException(this.translations.t("domains.conversation.not_found"));
+    }
     const scopedQuery = () => {
       const query = this.conversationRepo
         .createQueryBuilder("conversation")
@@ -190,6 +210,9 @@ export class ConversationService {
           )`,
           { accountId },
         );
+      }
+      if ((!accountId || accountId === "all") && allowedIds) {
+        query.andWhere(`EXISTS (SELECT 1 FROM "whatsapp_messages" allowed_message WHERE allowed_message."conversationId" = conversation.id AND allowed_message."adminId" = :adminId AND allowed_message."accountId" IN (:...allowedIds))`, { allowedIds });
       }
 
       return query;
@@ -438,6 +461,13 @@ export class ConversationService {
           : undefined;
 
     const hasAccountFilter = !!accountId && accountId !== "all";
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0) {
+      return { records: [], hasMore: false, limit, nextCursor: undefined, sortBy, sortDir };
+    }
+    if (hasAccountFilter && allowedIds && !allowedIds.includes(accountId)) {
+      throw new NotFoundException(this.translations.t("domains.conversation.not_found"));
+    }
     const qb = this.conversationRepo
       .createQueryBuilder("conversation")
       .leftJoinAndSelect("conversation.customer", "customer")
@@ -460,7 +490,25 @@ export class ConversationService {
         { accountId },
       );
     } else {
-      qb.leftJoinAndSelect("conversation.lastMessage", "lastMessage");
+      if (allowedIds) {
+        qb.innerJoinAndMapOne(
+          "conversation.lastMessage",
+          WhatsappMessageEntity,
+          "lastMessage",
+          `lastMessage.id = (
+            SELECT allowed_message.id
+            FROM "whatsapp_messages" allowed_message
+            WHERE allowed_message."conversationId" = conversation.id
+              AND allowed_message."adminId" = :adminId
+              AND allowed_message."accountId" IN (:...allowedIds)
+            ORDER BY allowed_message."createdAt" DESC, allowed_message.id DESC
+            LIMIT 1
+          )`,
+          { allowedIds },
+        );
+      } else {
+        qb.leftJoinAndSelect("conversation.lastMessage", "lastMessage");
+      }
     }
 
     // Filters
@@ -502,7 +550,8 @@ export class ConversationService {
       status: "conversation.status",
     };
 
-    const cursorSortCol = hasAccountFilter && sortBy === "lastMessageAt"
+    const hasScopedLastMessage = hasAccountFilter || allowedIds !== null;
+    const cursorSortCol = hasScopedLastMessage && sortBy === "lastMessageAt"
       ? "lastMessage.createdAt"
       : sortColumns[sortBy] || "conversation.lastMessageAt";
     const sortCol = cursorSortCol;
@@ -523,7 +572,7 @@ export class ConversationService {
     qb.addOrderBy("conversation.id", sortDir);
 
     const recordsWithExtra = await qb.take(limit + 1).getMany();
-    if (hasAccountFilter) {
+    if (hasScopedLastMessage) {
       recordsWithExtra.forEach((record) => {
         record.lastMessageAt = record.lastMessage.createdAt;
       });
@@ -555,14 +604,7 @@ export class ConversationService {
         this.translations.t("common.missing_admin_id"),
       );
     }
-    const conversation = await this.conversationRepo.findOne({
-      where: { id, adminId },
-    });
-    if (!conversation) {
-      throw new NotFoundException(
-        this.translations.t("domains.conversation.not_found"),
-      );
-    }
+    const conversation = await this.findOne(me, id);
     conversation.aiMode = aiMode;
     return this.conversationRepo.save(conversation);
   }
@@ -575,14 +617,7 @@ export class ConversationService {
         this.translations.t("common.missing_admin_id"),
       );
     }
-    const conversation = await this.conversationRepo.findOne({
-      where: { id, adminId },
-    });
-    if (!conversation) {
-      throw new NotFoundException(
-        this.translations.t("domains.conversation.not_found"),
-      );
-    }
+    const conversation = await this.findOne(me, id);
     conversation.agentPausedUntil = null;
     const saved = await this.conversationRepo.save(conversation);
     this.emitConversationAi(saved);
@@ -713,14 +748,7 @@ export class ConversationService {
         this.translations.t("common.missing_admin_id"),
       );
     }
-    const conversation = await this.conversationRepo.findOne({
-      where: { id, adminId },
-    });
-    if (!conversation) {
-      throw new NotFoundException(
-        this.translations.t("domains.conversation.not_found"),
-      );
-    }
+    const conversation = await this.findOne(me, id);
     await this.issues.solveOpenConversationIssues(adminId, id, me.id);
     conversation.humanHandoff = false;
     conversation.agentPausedUntil = null;
@@ -745,23 +773,46 @@ export class ConversationService {
       );
     }
 
-    const conversation = await this.conversationRepo.findOne({
-      where: { id, adminId },
-      relations: {
-        customer: true,
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0) {
+      throw new NotFoundException(this.translations.t("domains.conversation.not_found"));
+    }
+    const qb = this.conversationRepo
+      .createQueryBuilder("conversation")
+      .leftJoinAndSelect("conversation.customer", "customer")
+      .where("conversation.id = :id", { id })
+      .andWhere("conversation.adminId = :adminId", { adminId });
 
-        messages: {
-          account: true
-        },
+    if (allowedIds) {
+      qb.innerJoinAndMapOne(
+        "conversation.lastMessage",
+        WhatsappMessageEntity,
+        "lastMessage",
+        `lastMessage.id = (
+          SELECT allowed_message.id
+          FROM "whatsapp_messages" allowed_message
+          WHERE allowed_message."conversationId" = conversation.id
+            AND allowed_message."adminId" = :adminId
+            AND allowed_message."accountId" IN (:...allowedIds)
+          ORDER BY allowed_message."createdAt" DESC, allowed_message.id DESC
+          LIMIT 1
+        )`,
+        { allowedIds },
+      );
+    } else {
+      qb.leftJoinAndSelect("conversation.lastMessage", "lastMessage");
+    }
 
-        lastMessage: true
-      },
-    });
+    const conversation = await qb.getOne();
 
     if (!conversation) {
       throw new NotFoundException(
         this.translations.t("domains.conversation.not_found"),
       );
+    }
+
+    if (allowedIds) {
+      conversation.lastMessageAt = conversation.lastMessage.createdAt;
     }
 
     return conversation;

@@ -12,6 +12,7 @@ import { SuppliersModule } from "../supplier/supplier.module";
 import { ProductsModule } from "../products/products.module";
 import { ProductEntity } from "entities/sku.entity";
 import { GettingStartedItemEntity } from "entities/getting-started.entity";
+import { UserWhatsappAccountAccessEntity } from "entities/whatsapp.entity";
 
 @Global()
 @Module({
@@ -25,6 +26,7 @@ import { GettingStartedItemEntity } from "entities/getting-started.entity";
       Company,
       ProductEntity,
       GettingStartedItemEntity,
+      UserWhatsappAccountAccessEntity,
     ]),
     forwardRef(() => CategoryModule),
     forwardRef(() => SupplierCategoriesModule),

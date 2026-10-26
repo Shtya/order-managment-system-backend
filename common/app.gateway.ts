@@ -3,15 +3,16 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../entities/user.entity';
+import { User, WhatsappAccessMode } from '../entities/user.entity';
 import { Notification } from 'entities/notifications.entity';
 import { SupportTicketEntity, SupportTicketMessageEntity } from 'entities/support_tickets.entity';
 import { IssueEntity, IssueMessageEntity } from 'entities/issue.entity';
 import { OrderInternalNoteEntity } from 'entities/order.entity';
-import { ConversationEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
+import { ConversationEntity, UserWhatsappAccountAccessEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
 import { CustomerEntity } from 'entities/customers.entity';
 import { createClient, RedisClientOptions } from 'redis';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 
 
 @WebSocketGateway({
@@ -26,12 +27,17 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     server: Server;
 
     private redisClient;
+    private readonly logger = new Logger(AppGateway.name);
 
     constructor(
         private jwtService: JwtService,
         private configService: ConfigService, // 1. Inject ConfigService
         @InjectRepository(User)
         private userRepository: Repository<User>,
+        @InjectRepository(UserWhatsappAccountAccessEntity)
+        private whatsappAccessRepository: Repository<UserWhatsappAccountAccessEntity>,
+        @InjectRepository(WhatsappMessageEntity)
+        private whatsappMessageRepository: Repository<WhatsappMessageEntity>,
     ) {
         // 2. Reuse the exact same config logic as RedisIoAdapter
         const redisConfig = this.configService.get('redis');
@@ -53,6 +59,68 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const normalizedUserId = String(userId);
         const isOnline = await this.redisClient.sIsMember('online_users', normalizedUserId);
         return Boolean(isOnline);
+    }
+
+    async refreshWhatsappAccess(userId: string): Promise<void> {
+        const user = await this.userRepository.findOne({
+            where: { id: userId },
+            relations: { role: true },
+        });
+        if (!user) return;
+
+        const sockets = (await this.server.in(`user_${userId}`).fetchSockets())
+            .filter((client) => String(client.data.user?.id) === String(userId));
+        const isOwner = ["admin", "super_admin"].includes(String(user.role?.name || "").toLowerCase());
+        const accountAccess = !isOwner && user.whatsappAccessMode !== WhatsappAccessMode.ALL
+            ? await this.whatsappAccessRepository.find({
+                where: { adminId: user.adminId, userId },
+                select: { whatsappAccountId: true },
+            })
+            : [];
+
+        await Promise.all(sockets.map(async (client) => {
+            await Promise.all([...client.rooms]
+                .filter((room) => room.startsWith("whatsapp_owner_") || room.startsWith("whatsapp_account_"))
+                .map((room) => client.leave(room)));
+
+            if (isOwner) {
+                await client.join(`whatsapp_owner_${userId}`);
+            } else if (user.adminId && user.whatsappAccessMode === WhatsappAccessMode.ALL) {
+                await client.join(`whatsapp_owner_${String(user.adminId)}`);
+            } else {
+                await Promise.all(accountAccess.map(({ whatsappAccountId }) =>
+                    client.join(`whatsapp_account_${whatsappAccountId}`),
+                ));
+            }
+        }));
+    }
+
+    private emitWhatsappEvent(
+        userId: string,
+        event: string,
+        payload: Record<string, unknown>,
+        accountIds: Array<string | null | undefined> = [],
+    ) {
+        let target = this.server.to(`whatsapp_owner_${userId}`);
+        for (const accountId of [...new Set(accountIds.filter(Boolean))]) {
+            target = target.to(`whatsapp_account_${accountId}`);
+        }
+        target.emit(event, { ...payload, timestamp: new Date() });
+    }
+
+    private async emitConversationEvent(
+        userId: string,
+        conversationId: string,
+        event: string,
+        payload: Record<string, unknown>,
+    ) {
+        const rows = await this.whatsappMessageRepository
+            .createQueryBuilder("message")
+            .select('DISTINCT message."accountId"', "accountId")
+            .where('message."adminId" = :userId', { userId })
+            .andWhere('message."conversationId" = :conversationId', { conversationId })
+            .getRawMany<{ accountId: string }>();
+        this.emitWhatsappEvent(userId, event, payload, rows.map((row) => row.accountId));
     }
 
     // --- 1. Connection Handling ---
@@ -83,6 +151,8 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             if (!isAdmin && !isSuperAdmin && user.adminId) {
                 await socket.join(`user_${String(user.adminId)}`);
             }
+
+            await this.refreshWhatsappAccess(userId);
 
             // FIX 1: Track connection count across ALL PM2 workers
             const activeConnections = await this.redisClient.incr(`user_sockets:${userId}`);
@@ -231,13 +301,12 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             unreadCount?: number | null;
         },
     ) {
-        this.server.to(`user_${userId}`).emit("whatsapp:message-new", {
+        this.emitWhatsappEvent(userId, "whatsapp:message-new", {
             message,
             agentPausedUntil: extras?.agentPausedUntil ?? null,
             humanHandoff: extras?.humanHandoff ?? null,
             unreadCount: extras?.unreadCount ?? null,
-            timestamp: new Date(),
-        });
+        }, [message.accountId]);
     }
 
     emitConversationAi(
@@ -248,36 +317,50 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             agentPausedUntil?: Date | null;
         },
     ) {
-        this.server.to(`user_${userId}`).emit("whatsapp:conversation-ai", {
-            ...payload,
-            timestamp: new Date(),
-        });
+        void this.emitConversationEvent(
+            userId,
+            payload.conversationId,
+            "whatsapp:conversation-ai",
+            payload,
+        ).catch((error) => this.logger.error(
+            "Failed to emit conversation AI event",
+            error instanceof Error ? error.stack : String(error),
+        ));
     }
 
     emitConversationRead(userId: string, payload: { conversationId: string; unreadCount: number }) {
-        this.server.to(`user_${userId}`).emit("whatsapp:conversation-read", {
-            ...payload,
-            timestamp: new Date(),
-        });
+        void this.emitConversationEvent(
+            userId,
+            payload.conversationId,
+            "whatsapp:conversation-read",
+            payload,
+        ).catch((error) => this.logger.error(
+            "Failed to emit conversation read event",
+            error instanceof Error ? error.stack : String(error),
+        ));
     }
 
     emitUpdateMessage(userId: string, message: WhatsappMessageEntity) {
-        this.server.to(`user_${userId}`).emit("whatsapp:message-updated", {
+        this.emitWhatsappEvent(userId, "whatsapp:message-updated", {
             message,
-            timestamp: new Date(),
-        });
+        }, [message.accountId]);
     }
 
     emitNewConversation(userId: string, conversation: ConversationEntity) {
-        this.server.to(`user_${userId}`).emit("whatsapp:conversation-new", {
-            conversation,
-            timestamp: new Date(),
-        });
+        void this.emitConversationEvent(
+            userId,
+            conversation.id,
+            "whatsapp:conversation-new",
+            { conversation },
+        ).catch((error) => this.logger.error(
+            "Failed to emit new conversation event",
+            error instanceof Error ? error.stack : String(error),
+        ));
     }
 
 
     emitNewCustomer(userId: string, customer: CustomerEntity) {
-        this.server.to(`user_${userId}`).emit("whatsapp:customer-new", {
+        this.server.to(`whatsapp_owner_${userId}`).emit("whatsapp:customer-new", {
             customer,
             timestamp: new Date(),
         });

@@ -1433,6 +1433,8 @@
     "users_limit_reached": "تم الوصول إلى الحد الأقصى لعدد المستخدمين",
     "cannot_delete_super_admin": "لا يمكن حذف المشرف العام",
     "avatar_file_required": "ملف الصورة الشخصية مطلوب",
+    "invalid_whatsapp_accounts": "حساب واتساب واحد أو أكثر غير صالح",
+    "admin_whatsapp_access_unrestricted": "صلاحية المشرف لأرقام واتساب غير مقيدة دائمًا",
     "export_sheet": "المستخدمون",
     "export_id": "المعرف",
     "export_name": "الاسم",

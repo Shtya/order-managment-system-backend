@@ -1425,6 +1425,8 @@
     "users_limit_reached": "Users limit reached",
     "cannot_delete_super_admin": "Cannot delete super admin",
     "avatar_file_required": "Avatar file is required",
+    "invalid_whatsapp_accounts": "One or more WhatsApp accounts are invalid",
+    "admin_whatsapp_access_unrestricted": "Administrator WhatsApp access is always unrestricted",
     "export_sheet": "Users",
     "export_id": "ID",
     "export_name": "Name",

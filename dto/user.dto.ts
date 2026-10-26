@@ -1,8 +1,22 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl, Min, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsEnum, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl, IsUUID, Min, MinLength } from 'class-validator';
 import { i18nValidationMessage } from 'nestjs-i18n';
+import { WhatsappAccessMode } from 'entities/user.entity';
 
+const parseStringArray = ({ value }: { value: unknown }) => {
+	if (Array.isArray(value)) return value;
+	if (typeof value !== 'string' || !value.trim()) return [];
+	try { return JSON.parse(value); } catch { return value; }
+};
 
+export class UpdateWhatsappAccessDto {
+	@IsEnum(WhatsappAccessMode, { message: i18nValidationMessage('validation.is_enum') })
+	whatsappAccessMode: WhatsappAccessMode;
+
+	@IsArray({ message: i18nValidationMessage('validation.is_array') })
+	@IsUUID('4', { each: true, message: i18nValidationMessage('validation.is_uuid') })
+	whatsappAccountIds: string[];
+}
 
 
 export class AdminCreateUserDto {
@@ -153,6 +167,16 @@ export class AdminCreateAvatarDto {
 	@IsOptional()
 	@IsString({message: i18nValidationMessage('validation.is_string')})
 	employeeType?: string;
+
+	@IsOptional()
+	@IsEnum(WhatsappAccessMode, { message: i18nValidationMessage('validation.is_enum') })
+	whatsappAccessMode?: WhatsappAccessMode;
+
+	@IsOptional()
+	@Transform(parseStringArray)
+	@IsArray({ message: i18nValidationMessage('validation.is_array') })
+	@IsUUID('4', { each: true, message: i18nValidationMessage('validation.is_uuid') })
+	whatsappAccountIds?: string[];
 }
 
 

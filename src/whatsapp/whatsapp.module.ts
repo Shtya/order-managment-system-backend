@@ -8,6 +8,7 @@ import {
   WhatsappMessageEntity,
   WhatsappTemplateEntity,
   WhatsappWebhookEventEntity,
+  UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { WhatsappApiService } from "./services/WhatsappApi.service";
@@ -47,6 +48,7 @@ import { WhatsappAiService } from "./services/whatsapp-ai.service";
       ConversationEntity,
       CustomerEntity,
       AutomationRunEntity,
+      UserWhatsappAccountAccessEntity,
     ]),
   ],
   controllers: [

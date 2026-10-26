@@ -411,6 +411,45 @@ export class WhatsappAccountEntity {
     updatedAt: Date;
 }
 
+@Index(['adminId'])
+@Index(['adminId', 'userId', 'whatsappAccountId'], { unique: true })
+@Index(['adminId', 'userId'])
+@Entity('user_whatsapp_account_access')
+export class UserWhatsappAccountAccessEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Column({ type: 'uuid' })
+    adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'adminId' })
+    admin: Relation<User>;
+
+    @Column({ type: 'uuid' })
+    userId: string;
+
+    @ManyToOne(() => User, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'userId' })
+    user: User;
+
+    @Column({ type: 'uuid' })
+    whatsappAccountId: string;
+
+    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'whatsappAccountId' })
+    whatsappAccount: WhatsappAccountEntity;
+
+    @Column({ type: 'uuid', nullable: true })
+    createdByUserId?: string | null;
+
+    @CreateDateColumn({ type: 'timestamptz' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamptz' })
+    updatedAt: Date;
+}
+
 @Index(['name', 'language', 'accountId'], { unique: true })
 @Index(['metaId'])
 @Entity('whatsapp_templates')

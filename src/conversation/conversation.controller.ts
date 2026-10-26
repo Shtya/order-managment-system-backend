@@ -39,7 +39,7 @@ export class ConversationController {
   @UseInterceptors(
     FileInterceptor("profilePicture", { storage: meAvatarStorage }),
   )
-  @Permissions("conversation.create")
+  @Permissions("conversation.create", "customer.create")
   create(
     @Req() req: any,
     @Body() payload: CreateConversationDto,

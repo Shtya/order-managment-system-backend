@@ -7,6 +7,7 @@ import {
   WhatsappAccountEntity,
   WhatsappMessageEntity,
   WhatsappTemplateEntity,
+  UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { CustomerModule } from "../customer/customer.module";
@@ -22,6 +23,7 @@ import { IssueModule } from "src/issue/issue.module";
       WhatsappMessageEntity,
       CustomerEntity,
       ConversationEntity,
+      UserWhatsappAccountAccessEntity,
     ]),
   ],
   controllers: [ConversationController],

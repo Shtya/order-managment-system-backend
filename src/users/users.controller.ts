@@ -23,6 +23,7 @@ import {
   AdminCreateDto,
   UpdateMeTablePreferencesDto,
   UpdateMeStatisticsPreferencesDto,
+  UpdateWhatsappAccessDto,
   UpdateMeUserDto,
   UpdateUserDto,
   UpsertCompanyDto,
@@ -292,6 +293,8 @@ export class UsersController {
       dto.password,
       dto.phone,
       dto.employeeType,
+      dto.whatsappAccessMode,
+      dto.whatsappAccountIds,
       avatar,
     );
   }
@@ -340,6 +343,16 @@ export class UsersController {
   @Patch(":id/toggle-active")
   toggleActive(@Req() req: any, @Param("id") id: string) {
     return this.users.toggleActive(req.user, id);
+  }
+
+  @Permissions("users.update")
+  @Patch(":id/whatsapp-access")
+  updateWhatsappAccess(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateWhatsappAccessDto,
+  ) {
+    return this.users.updateWhatsappAccess(req.user, id, dto);
   }
 
   @Permissions("users.update")

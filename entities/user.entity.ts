@@ -25,6 +25,11 @@ export enum SystemRole {
 	USER = 'user',
 }
 
+export enum WhatsappAccessMode {
+	ALL = 'all',
+	SELECTED = 'selected',
+}
+
 @Entity('roles')
 export class Role {
 	@PrimaryGeneratedColumn('uuid')
@@ -118,6 +123,13 @@ export class User {
 
 	@Column({ default: true })
 	isActive: boolean;
+
+	@Column({
+		type: 'enum',
+		enum: WhatsappAccessMode,
+		default: WhatsappAccessMode.SELECTED,
+	})
+	whatsappAccessMode: WhatsappAccessMode;
 
 	@Column({ nullable: true })
 	resetPasswordTokenHash?: string | null;

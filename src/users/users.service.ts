@@ -14,8 +14,9 @@ import {
   Role,
   SystemRole,
   User,
+  WhatsappAccessMode,
 } from "entities/user.entity";
-import { DataSource, EntityManager, Repository } from "typeorm";
+import { DataSource, EntityManager, In, Repository } from "typeorm";
 import ExcelJS from "exceljs";
 import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
@@ -27,6 +28,7 @@ import {
 } from "entities/plans.entity";
 import {
   AdminCreateDto,
+  UpdateWhatsappAccessDto,
   UpdateMeUserDto,
   UpdateUserDto,
   UpsertCompanyDto,
@@ -44,6 +46,8 @@ import {
   GettingStartedAchievementType,
   GettingStartedItemEntity,
 } from "entities/getting-started.entity";
+import { UserWhatsappAccountAccessEntity, WhatsappAccountEntity } from "entities/whatsapp.entity";
+import { AppGateway } from "common/app.gateway";
 
 @Injectable()
 export class UsersService {
@@ -56,16 +60,89 @@ export class UsersService {
     private subscriptionsRepo: Repository<Subscription>, // ✅ NEW
     @InjectRepository(GettingStartedItemEntity)
     private itemRepo: Repository<GettingStartedItemEntity>, // ✅ NEW
+    @InjectRepository(UserWhatsappAccountAccessEntity)
+    private whatsappAccessRepo: Repository<UserWhatsappAccountAccessEntity>,
 
     @Inject(forwardRef(() => SubscriptionsService))
     private readonly subscriptionsService: SubscriptionsService,
     private readonly seedService: SeedService,
     private readonly translations: TranslationService,
     private readonly onboardingAchievementService: OnboardingAchievementService,
+    private readonly appGateway: AppGateway,
   ) { }
 
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
+  }
+
+  private async validateWhatsappAccountIds(
+    manager: EntityManager,
+    adminId: string,
+    ids: string[] = [],
+  ) {
+    const normalized = [...new Set(ids.filter(Boolean))];
+    if (!normalized.length) return normalized;
+    const count = await manager.getRepository(WhatsappAccountEntity).count({
+      where: { id: In(normalized), adminId },
+    });
+    if (count !== normalized.length) {
+      throw new BadRequestException(
+        this.translations.t("domains.users.invalid_whatsapp_accounts"),
+      );
+    }
+    return normalized;
+  }
+
+  private async replaceWhatsappAccess(
+    manager: EntityManager,
+    actor: User,
+    user: User,
+    mode: WhatsappAccessMode,
+    ids: string[] = [],
+  ) {
+    const adminId = user.adminId;
+    if (!adminId) {
+      throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    }
+    if ([SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(user.role?.name as SystemRole)) {
+      throw new BadRequestException(
+        this.translations.t("domains.users.admin_whatsapp_access_unrestricted"),
+      );
+    }
+    const normalized = mode === WhatsappAccessMode.SELECTED
+      ? await this.validateWhatsappAccountIds(manager, adminId, ids)
+      : [];
+    await manager.getRepository(User).update(
+      { id: user.id, adminId },
+      { whatsappAccessMode: mode },
+    );
+    const repo = manager.getRepository(UserWhatsappAccountAccessEntity);
+    await repo.delete({ adminId, userId: user.id });
+    if (normalized.length) {
+      await repo.save(normalized.map((whatsappAccountId) => repo.create({
+        adminId,
+        userId: user.id,
+        whatsappAccountId,
+        createdByUserId: actor.id,
+      })));
+    }
+    return normalized;
+  }
+
+  private async attachWhatsappAccess<T extends User | null>(user: T): Promise<T> {
+    if (!user) return user;
+    const adminId = user.adminId ?? user.id;
+    const assignments = await this.whatsappAccessRepo.find({
+      where: { adminId, userId: user.id },
+      relations: { whatsappAccount: true },
+      order: { createdAt: "ASC" },
+    });
+    Object.assign(user as any, {
+      whatsappAccountIds: assignments.map((row) => row.whatsappAccountId),
+      whatsappAccountCount: assignments.length,
+      whatsappAccounts: assignments.map((row) => row.whatsappAccount),
+    });
+    return user;
   }
 
   async getFullUser(userId: string, addPass: boolean = false): Promise<User> {
@@ -887,6 +964,22 @@ export class UsersService {
 
     const totalAll = Object.values(byType).reduce((a, b) => a + b, 0);
 
+    const accessCounts = new Map<string, number>();
+    if (records.length) {
+      const adminIds = [...new Set(records.map((record) => record.adminId).filter(Boolean))];
+      if (adminIds.length) {
+        const accessRows = await this.whatsappAccessRepo
+          .createQueryBuilder("access")
+          .select("access.userId", "userId")
+          .addSelect("COUNT(*)", "count")
+          .where("access.userId IN (:...userIds)", { userIds: records.map((record) => record.id) })
+          .andWhere("access.adminId IN (:...adminIds)", { adminIds })
+          .groupBy("access.userId")
+          .getRawMany();
+        accessRows.forEach((row) => accessCounts.set(row.userId, Number(row.count)));
+      }
+    }
+
     const types = [
       { id: "all", label: "All", count: totalAll },
       ...Object.entries(byType)
@@ -929,6 +1022,8 @@ export class UsersService {
           type: u.employeeType, // for frontend logic
           typeLabel: u.employeeType, // for display
           isActive: u.isActive,
+          whatsappAccessMode: u.whatsappAccessMode,
+          whatsappAccountCount: accessCounts.get(u.id) || 0,
         };
       }),
       total_records,
@@ -1025,7 +1120,7 @@ export class UsersService {
 
     if (!this.isSuperAdmin(me) && me.role?.name === SystemRole.ADMIN) {
       this.ensureAdminOwnership(me, user);
-      return user;
+      return this.attachWhatsappAccess(user);
     }
 
     if (me.role?.name === SystemRole.USER && me.id !== id) {
@@ -1034,7 +1129,7 @@ export class UsersService {
       );
     }
 
-    return user;
+    return this.attachWhatsappAccess(user);
   }
   async getMe(id: string) {
     const user = await this.getFullUser(id, true);
@@ -1148,6 +1243,8 @@ export class UsersService {
     password?: string,
     phone?: string, // ✅ NEW
     employeeType?: string, // ✅ NEW
+    whatsappAccessMode: WhatsappAccessMode = WhatsappAccessMode.SELECTED,
+    whatsappAccountIds: string[] = [],
     avatar?: Express.Multer.File, // ✅ NEW
   ) {
     if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
@@ -1165,7 +1262,14 @@ export class UsersService {
       );
     }
 
-    const role = await this.rolesRepo.findOne({ where: { id: roleId } });
+    const role = await this.rolesRepo.findOne({
+      where: this.isSuperAdmin(me)
+        ? { id: roleId }
+        : [
+          { id: roleId, adminId: me.id },
+          { id: roleId, isGlobal: true },
+        ],
+    });
     if (!role) {
       throw new BadRequestException(
         this.translations.t("domains.users.role_not_found"),
@@ -1193,19 +1297,29 @@ export class UsersService {
       avatarUrl = `/uploads/avatars/${avatar.filename}`;
     }
 
-    const user = this.usersRepo.create({
-      name,
-      email,
-      passwordHash,
-      roleId,
-      phone: phone || null,
-      employeeType: employeeType || null,
-      avatarUrl: avatarUrl,
-      adminId: me.id,
-      isActive: true,
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const usersRepo = manager.getRepository(User);
+      const user = usersRepo.create({
+        name,
+        email,
+        passwordHash,
+        roleId,
+        phone: phone || null,
+        employeeType: employeeType || null,
+        avatarUrl: avatarUrl,
+        adminId: me.id,
+        isActive: true,
+      });
+      const created = await usersRepo.save(user);
+      await this.replaceWhatsappAccess(
+        manager,
+        me,
+        { ...created, role } as User,
+        whatsappAccessMode,
+        whatsappAccountIds,
+      );
+      return created;
     });
-
-    const saved = await this.usersRepo.save(user);
 
     this.onboardingAchievementService.enqueueAchievement(
       me.id,
@@ -1220,6 +1334,27 @@ export class UsersService {
         email: saved.email,
         password: plainPassword,
       },
+    };
+  }
+
+  async updateWhatsappAccess(me: User, id: string, dto: UpdateWhatsappAccessDto) {
+    const adminId = tenantId(me);
+    const user = await this.usersRepo.findOne({
+      where: this.isSuperAdmin(me) ? { id } : { id, adminId },
+      relations: { role: true },
+    });
+    if (!user) {
+      throw new NotFoundException(this.translations.t("common.user_not_found"));
+    }
+    const whatsappAccountIds = await this.dataSource.transaction((manager) =>
+      this.replaceWhatsappAccess(manager, me, user, dto.whatsappAccessMode, dto.whatsappAccountIds),
+    );
+    await this.appGateway.refreshWhatsappAccess(user.id);
+    return {
+      userId: user.id,
+      whatsappAccessMode: dto.whatsappAccessMode,
+      whatsappAccountIds,
+      whatsappAccountCount: whatsappAccountIds.length,
     };
   }
 

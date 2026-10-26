@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Brackets } from "typeorm";
+import { Repository, Brackets, In } from "typeorm";
 import ExcelJS from "exceljs";
 import {
   WhatsappAccountEntity,
@@ -13,6 +13,7 @@ import {
   MessageDirection,
   WhatsappAiAgentSource,
   WhatsappAiResponses,
+  UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
 import { UpdateWhatsappAccountAiDto } from "dto/whatsapp-ai.dto";
 import { WhatsappAiService } from "./whatsapp-ai.service";
@@ -21,6 +22,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import { ConversationEntity } from "entities/whatsapp.entity";
 import { TranslationService } from "common/translation.service";
+import { SystemRole, WhatsappAccessMode } from "entities/user.entity";
 
 @Injectable()
 export class WhatsappAccountService {
@@ -31,9 +33,26 @@ export class WhatsappAccountService {
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
     @InjectRepository(ConversationEntity)
     private readonly conversationRepo: Repository<ConversationEntity>,
+    @InjectRepository(UserWhatsappAccountAccessEntity)
+    private readonly accessRepo: Repository<UserWhatsappAccountAccessEntity>,
     private readonly translations: TranslationService,
     private readonly whatsappAiService: WhatsappAiService,
   ) {}
+
+  private hasAllAccountAccess(me: any) {
+    return [SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(me?.role?.name) ||
+      me?.whatsappAccessMode === WhatsappAccessMode.ALL;
+  }
+
+  private async allowedAccountIds(me: any): Promise<string[] | null> {
+    if (this.hasAllAccountAccess(me)) return null;
+    const adminId = tenantId(me);
+    const rows = await this.accessRepo.find({
+      where: { adminId, userId: me.id },
+      select: { whatsappAccountId: true },
+    });
+    return rows.map((row) => row.whatsappAccountId);
+  }
 
   async getStats(me: any) {
     const adminId = tenantId(me);
@@ -45,26 +64,38 @@ export class WhatsappAccountService {
 
     const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0) {
+      return { deliveryRate: 0, readRate: 0, newConversations: 0, failureRate: 0 };
+    }
+
+    const messagesQuery = this.messageRepo
+      .createQueryBuilder("m")
+      .select("m.status", "status")
+      .addSelect("COUNT(*)", "count")
+      .where("m.adminId = :adminId", { adminId })
+      .andWhere("m.direction = :direction", { direction: MessageDirection.OUTBOUND });
+    const conversationsQuery = this.conversationRepo
+      .createQueryBuilder("c")
+      .where("c.adminId = :adminId", { adminId })
+      .andWhere("c.createdAt >= :fortyEightHoursAgo", { fortyEightHoursAgo });
+    if (allowedIds) {
+      messagesQuery.andWhere("m.accountId IN (:...allowedIds)", { allowedIds });
+      conversationsQuery.andWhere(
+        `EXISTS (SELECT 1 FROM "whatsapp_messages" scoped_message WHERE scoped_message."conversationId" = c.id AND scoped_message."adminId" = :adminId AND scoped_message."accountId" IN (:...allowedIds))`,
+        { allowedIds },
+      );
+    }
+
     const [messageStatsRaw, newConversations] = await Promise.all([
       // 1. Message status counts for outbound messages in last 48h
-      this.messageRepo
-        .createQueryBuilder("m")
-        .select("m.status", "status")
-        .addSelect("COUNT(*)", "count")
-        .where("m.adminId = :adminId", { adminId })
-        .andWhere("m.direction = :direction", {
-          direction: MessageDirection.OUTBOUND,
-        })
+      messagesQuery
         // .andWhere('m.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
         .groupBy("m.status")
         .getRawMany(),
 
       // 2. New conversations in last 48h
-      this.conversationRepo
-        .createQueryBuilder("c")
-        .where("c.adminId = :adminId", { adminId })
-        .andWhere("c.createdAt >= :fortyEightHoursAgo", { fortyEightHoursAgo })
-        .getCount(),
+      conversationsQuery.getCount(),
     ]);
 
     let totalOutbound = 0;
@@ -115,6 +146,11 @@ export class WhatsappAccountService {
     }
     const where: Record<string, unknown> = { adminId };
     if (accountId) where.id = accountId;
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0 || (accountId && allowedIds && !allowedIds.includes(accountId))) {
+      return { total: 0, active: 0, inactive: 0 };
+    }
+    if (!accountId && allowedIds) where.id = In(allowedIds);
     const [total, active] = await Promise.all([
       this.accountRepo.count({ where: where as any }),
       this.accountRepo.count({ where: { ...where, isActive: true } as any }),
@@ -140,6 +176,18 @@ export class WhatsappAccountService {
     const qb = this.accountRepo.createQueryBuilder("acc");
 
     qb.where("acc.adminId = :adminId", { adminId });
+    const allowedIds = await this.allowedAccountIds(me);
+    if (allowedIds?.length === 0) {
+      return {
+        total_records: 0,
+        current_page: page,
+        per_page: limit,
+        records: [],
+      };
+    }
+    if (allowedIds) {
+      qb.andWhere("acc.id IN (:...allowedIds)", { allowedIds });
+    }
 
     // Mapping columns for sorting
     const sortColumns: Record<string, string> = {
@@ -194,7 +242,10 @@ export class WhatsappAccountService {
 
   async findOne(me: any, id: string) {
     const adminId = tenantId(me);
-    const account = await this.accountRepo.findOne({ where: { id, adminId } });
+    const allowedIds = await this.allowedAccountIds(me);
+    const account = allowedIds && !allowedIds.includes(id)
+      ? null
+      : await this.accountRepo.findOne({ where: { id, adminId } });
     if (!account) {
       throw new NotFoundException(
         this.translations.t("domains.whatsapp.whatsapp_account_not_found"),

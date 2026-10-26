@@ -1811,6 +1811,8 @@ export type I18nTranslations = {
             "users_limit_reached": string;
             "cannot_delete_super_admin": string;
             "avatar_file_required": string;
+            "invalid_whatsapp_accounts": string;
+            "admin_whatsapp_access_unrestricted": string;
             "export_sheet": string;
             "export_id": string;
             "export_name": string;
