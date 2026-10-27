@@ -485,12 +485,14 @@ export class CampaignsService {
 
   // Processed recipients only: pending/sending rows are still in the
   // pipeline, so they are excluded unless explicitly requested.
+
   async listRecipients(me: any, id: string, q: any) {
     const adminId = this.adminIdOf(me);
     const campaign = await this.campaignRepo.findOne({
       where: { id, adminId },
       select: { id: true },
     });
+
     if (!campaign)
       throw new NotFoundException(
         this.translations.t("domains.campaigns.not_found"),
@@ -500,11 +502,17 @@ export class CampaignsService {
       .createQueryBuilder("recipient")
       .leftJoin("recipient.order", "order")
       .addSelect(["order.id", "order.orderNumber"])
+      .addSelect(
+        "COALESCE(recipient.sentAt, recipient.failedAt, recipient.createdAt)",
+        "sortDate",
+      )
       .where("recipient.campaignId = :id", { id })
       .andWhere("recipient.adminId = :adminId", { adminId });
 
     if (q?.status) {
-      qb.andWhere("recipient.deliveryStatus = :status", { status: q.status });
+      qb.andWhere("recipient.deliveryStatus = :status", {
+        status: q.status,
+      });
     } else {
       qb.andWhere("recipient.deliveryStatus NOT IN (:...pending)", {
         pending: [
@@ -513,6 +521,7 @@ export class CampaignsService {
         ],
       });
     }
+
     if (q?.search) {
       qb.andWhere(
         "(recipient.name ILIKE :search OR recipient.phoneNumber ILIKE :search OR recipient.email ILIKE :search)",
@@ -521,15 +530,16 @@ export class CampaignsService {
     }
 
     qb.orderBy(
-      'COALESCE(recipient.sentAt, recipient.failedAt, recipient.createdAt)',
+      "sortDate",
       FilterUtil.normalizeSortOrder(q?.sortOrder),
-    ).addOrderBy('recipient.id', 'DESC');
+    ).addOrderBy("recipient.id", "DESC");
 
     const page = Math.max(1, parseInt(q?.page) || 1);
     const limit = Math.min(
       LIST_PAGE_LIMIT_MAX,
       Math.max(1, parseInt(q?.limit) || LIST_PAGE_LIMIT),
     );
+
     qb.skip((page - 1) * limit).take(limit);
 
     const [records, total] = await qb.getManyAndCount();
@@ -541,6 +551,7 @@ export class CampaignsService {
       records,
     };
   }
+
 
   async getSummary(me: any, id: string) {
     const adminId = this.adminIdOf(me);
