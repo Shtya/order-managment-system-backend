@@ -520,7 +520,10 @@ export class CampaignsService {
       );
     }
 
-    qb.orderBy("recipient.sentAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
+    qb.orderBy(
+      'COALESCE(recipient.sentAt, recipient.failedAt, recipient.createdAt)',
+      FilterUtil.normalizeSortOrder(q?.sortOrder),
+    ).addOrderBy('recipient.id', 'DESC');
 
     const page = Math.max(1, parseInt(q?.page) || 1);
     const limit = Math.min(
