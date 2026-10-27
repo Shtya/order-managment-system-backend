@@ -520,7 +520,7 @@ export class CampaignsService {
       );
     }
 
-    qb.orderBy("recipient.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
+    qb.orderBy("recipient.sentAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const page = Math.max(1, parseInt(q?.page) || 1);
     const limit = Math.min(
