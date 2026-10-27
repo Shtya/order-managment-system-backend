@@ -1335,6 +1335,7 @@
     "templates_sync_failed_after_integration": "Account integrated but failed to sync templates. You can sync them manually later.",
     "failed_to_connect_whatsapp": "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID.",
     "whatsapp_account_not_found": "WhatsApp account not found",
+    "whatsapp_account_access_denied": "You do not have permission to access this WhatsApp account",
     "access_token_updated": "WhatsApp account access token updated successfully",
     "only_manual_accounts_can_be_updated": "Only manual accounts can be updated",
     "whatsapp_accounts_sheet": "WhatsApp Accounts",

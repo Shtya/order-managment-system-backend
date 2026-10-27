@@ -38,7 +38,10 @@ import {
   WhatsappMessageOriginIds,
   UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
-import { hasFullWhatsappAccountAccess } from "./whatsapp-account-access";
+import {
+  allowedAccountIds,
+  assertWhatsappAccountAccess,
+} from "./whatsapp-account-access";
 import {
   AutomationFlowEntity,
   AutomationRunEntity,
@@ -186,21 +189,15 @@ export class WhatsappService {
     private readonly agentTurnQueueService: AgentTurnQueueService,
   ) {}
 
-  private async allowedAccountIds(me: any): Promise<string[] | null> {
-    if (hasFullWhatsappAccountAccess(me)) return null;
-    const adminId = tenantId(me);
-    const rows = await this.accessRepo.find({
-      where: { adminId, userId: me.id },
-      select: { whatsappAccountId: true },
-    });
-    return rows.map((row) => row.whatsappAccountId);
-  }
-
   private async assertAccountAccess(me: any, accountId: string) {
-    const allowedIds = await this.allowedAccountIds(me);
-    if (allowedIds && !allowedIds.includes(accountId)) {
-      throw new NotFoundException(this.translations.t("domains.whatsapp.whatsapp_account_not_found"));
-    }
+    await assertWhatsappAccountAccess({
+      me,
+      accountId,
+      accessRepo: this.accessRepo,
+      accountRepo: this.accountRepo,
+      notFoundMessage: this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+      forbiddenMessage: this.translations.t("domains.whatsapp.whatsapp_account_access_denied"),
+    });
   }
 
   async getMessagesByTypeStats(me: any, filters: any = {}) {
@@ -1978,7 +1975,7 @@ export class WhatsappService {
         this.appGateway.emitUpdateMessage(adminId, message);
       }
     } else if (payload.conversationId) {
-      const allowedIds = await this.allowedAccountIds(me);
+      const allowedIds = await allowedAccountIds(me, this.accessRepo);
       if (allowedIds?.length === 0) return { success: true };
       const conversation = await this.conversationRepo.findOne({
         where: { id: payload.conversationId, adminId },
@@ -3005,7 +3002,7 @@ export class WhatsappService {
         reactionType: WhatsappMessageType.REACTION,
       });
 
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     if (allowedIds?.length === 0) {
       return { records: [], hasMore: false, limit, nextCursor: undefined, sortBy, sortDir };
     }

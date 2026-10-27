@@ -14,11 +14,15 @@ import {
   MessageDirection,
   WhatsappMessageEntity,
   WhatsappMessageType,
+  WhatsappAccountEntity,
   UserWhatsappAccountAccessEntity,
   ConversationUserAccessEntity,
 } from "entities/whatsapp.entity";
 import { WhatsappAccessMode } from "entities/user.entity";
-import { hasFullWhatsappAccountAccess } from "src/whatsapp/whatsapp-account-access";
+import {
+  allowedAccountIds,
+  assertWhatsappAccountAccess,
+} from "src/whatsapp/whatsapp-account-access";
 import { CustomerEntity } from "entities/customers.entity";
 import { CreateConversationDto } from "dto/whatsapp.dto";
 import { CustomerService } from "../customer/customer.service";
@@ -41,6 +45,8 @@ export class ConversationService {
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
     @InjectRepository(UserWhatsappAccountAccessEntity)
     private readonly accessRepo: Repository<UserWhatsappAccountAccessEntity>,
+    @InjectRepository(WhatsappAccountEntity)
+    private readonly accountRepo: Repository<WhatsappAccountEntity>,
     private readonly customerService: CustomerService,
     private readonly appGateway: AppGateway,
     private readonly dataSource: DataSource,
@@ -52,16 +58,6 @@ export class ConversationService {
     @Inject(forwardRef(() => IssueService))
     private readonly issues: IssueService,
   ) { }
-
-  private async allowedAccountIds(me: any): Promise<string[] | null> {
-    if (hasFullWhatsappAccountAccess(me)) return null;
-    const adminId = tenantId(me);
-    const rows = await this.accessRepo.find({
-      where: { adminId, userId: me.id },
-      select: { whatsappAccountId: true },
-    });
-    return rows.map((row) => row.whatsappAccountId);
-  }
 
   private async grantDirectConversationAccess(
     manager: EntityManager,
@@ -254,9 +250,16 @@ export class ConversationService {
     }
 
     const accountId = String(requestedAccountId ?? "").trim();
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     if (accountId && accountId !== "all" && allowedIds && !allowedIds.includes(accountId)) {
-      throw new NotFoundException(this.translations.t("domains.conversation.not_found"));
+      await assertWhatsappAccountAccess({
+        me,
+        accountId,
+        accessRepo: this.accessRepo,
+        accountRepo: this.accountRepo,
+        notFoundMessage: this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+        forbiddenMessage: this.translations.t("domains.whatsapp.whatsapp_account_access_denied"),
+      });
     }
     const scopedQuery = () => {
       const query = this.conversationRepo
@@ -534,9 +537,16 @@ export class ConversationService {
           : undefined;
 
     const hasAccountFilter = !!accountId && accountId !== "all";
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     if (hasAccountFilter && allowedIds && !allowedIds.includes(accountId)) {
-      throw new NotFoundException(this.translations.t("domains.conversation.not_found"));
+      await assertWhatsappAccountAccess({
+        me,
+        accountId,
+        accessRepo: this.accessRepo,
+        accountRepo: this.accountRepo,
+        notFoundMessage: this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+        forbiddenMessage: this.translations.t("domains.whatsapp.whatsapp_account_access_denied"),
+      });
     }
     const qb = this.conversationRepo
       .createQueryBuilder("conversation")
@@ -874,7 +884,7 @@ export class ConversationService {
       );
     }
 
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     const qb = this.conversationRepo
       .createQueryBuilder("conversation")
       .leftJoinAndSelect("conversation.customer", "customer")

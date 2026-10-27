@@ -1343,6 +1343,7 @@
     "templates_sync_failed_after_integration": "تم ربط الحساب، ولكن تعذر مزامنة القوالب. يمكنك مزامنتها يدويًا لاحقًا.",
     "failed_to_connect_whatsapp": "فشل الاتصال بواتساب. يرجى التحقق من رمز الوصول (Access Token) ومعرف حساب واتساب للأعمال (WABA ID) ومعرف رقم الهاتف (Phone Number ID).",
     "whatsapp_account_not_found": "لم يتم العثور على حساب واتساب",
+    "whatsapp_account_access_denied": "ليس لديك صلاحية للوصول إلى حساب واتساب هذا",
     "access_token_updated": "تم تحديث رمز الوصول لحساب واتساب بنجاح",
     "only_manual_accounts_can_be_updated": "يمكن تحديث الحسابات اليدوية فقط",
     "whatsapp_accounts_sheet": "حسابات واتساب",

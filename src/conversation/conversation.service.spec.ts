@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 vi.mock("entities/whatsapp.entity", () => ({
   ConversationEntity: class {},
   WhatsappMessageEntity: class {},
+  WhatsappAccountEntity: class {},
   UserWhatsappAccountAccessEntity: class {},
   ConversationUserAccessEntity: class {},
   ConversationAiMode: {},
@@ -61,6 +62,7 @@ describe("ConversationService contact/conversation statistics", () => {
         },
       ]);
     const service = new ConversationService(
+      {} as any,
       {} as any,
       {} as any,
       {} as any,
@@ -150,6 +152,7 @@ describe("ConversationService.getOrCreateConversationByCustomerId", () => {
     };
     const service = new ConversationService(
       conversationRepo as any,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,

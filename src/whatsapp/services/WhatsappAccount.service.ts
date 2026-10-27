@@ -22,7 +22,10 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import { ConversationEntity } from "entities/whatsapp.entity";
 import { TranslationService } from "common/translation.service";
-import { hasFullWhatsappAccountAccess } from "../whatsapp-account-access";
+import {
+  allowedAccountIds,
+  assertWhatsappAccountAccess,
+} from "../whatsapp-account-access";
 
 @Injectable()
 export class WhatsappAccountService {
@@ -39,20 +42,6 @@ export class WhatsappAccountService {
     private readonly whatsappAiService: WhatsappAiService,
   ) {}
 
-  private hasAllAccountAccess(me: any) {
-    return hasFullWhatsappAccountAccess(me);
-  }
-
-  private async allowedAccountIds(me: any): Promise<string[] | null> {
-    if (this.hasAllAccountAccess(me)) return null;
-    const adminId = tenantId(me);
-    const rows = await this.accessRepo.find({
-      where: { adminId, userId: me.id },
-      select: { whatsappAccountId: true },
-    });
-    return rows.map((row) => row.whatsappAccountId);
-  }
-
   async getStats(me: any) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -63,7 +52,7 @@ export class WhatsappAccountService {
 
     const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     if (allowedIds?.length === 0) {
       return { deliveryRate: 0, readRate: 0, newConversations: 0, failureRate: 0 };
     }
@@ -145,7 +134,7 @@ export class WhatsappAccountService {
     }
     const where: Record<string, unknown> = { adminId };
     if (accountId) where.id = accountId;
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     if (allowedIds?.length === 0 || (accountId && allowedIds && !allowedIds.includes(accountId))) {
       return { total: 0, active: 0, inactive: 0 };
     }
@@ -175,7 +164,7 @@ export class WhatsappAccountService {
     const qb = this.accountRepo.createQueryBuilder("acc");
 
     qb.where("acc.adminId = :adminId", { adminId });
-    const allowedIds = await this.allowedAccountIds(me);
+    const allowedIds = await allowedAccountIds(me, this.accessRepo);
     if (allowedIds?.length === 0) {
       return {
         total_records: 0,
@@ -241,10 +230,15 @@ export class WhatsappAccountService {
 
   async findOne(me: any, id: string) {
     const adminId = tenantId(me);
-    const allowedIds = await this.allowedAccountIds(me);
-    const account = allowedIds && !allowedIds.includes(id)
-      ? null
-      : await this.accountRepo.findOne({ where: { id, adminId } });
+    await assertWhatsappAccountAccess({
+      me,
+      accountId: id,
+      accessRepo: this.accessRepo,
+      accountRepo: this.accountRepo,
+      notFoundMessage: this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+      forbiddenMessage: this.translations.t("domains.whatsapp.whatsapp_account_access_denied"),
+    });
+    const account = await this.accountRepo.findOne({ where: { id, adminId } });
     if (!account) {
       throw new NotFoundException(
         this.translations.t("domains.whatsapp.whatsapp_account_not_found"),

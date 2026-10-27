@@ -1726,6 +1726,7 @@ export type I18nTranslations = {
             "templates_sync_failed_after_integration": string;
             "failed_to_connect_whatsapp": string;
             "whatsapp_account_not_found": string;
+            "whatsapp_account_access_denied": string;
             "access_token_updated": string;
             "only_manual_accounts_can_be_updated": string;
             "whatsapp_accounts_sheet": string;
