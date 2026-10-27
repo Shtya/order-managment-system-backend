@@ -38,7 +38,7 @@ import {
   WhatsappMessageOriginIds,
   UserWhatsappAccountAccessEntity,
 } from "entities/whatsapp.entity";
-import { SystemRole, WhatsappAccessMode } from "entities/user.entity";
+import { hasFullWhatsappAccountAccess } from "./whatsapp-account-access";
 import {
   AutomationFlowEntity,
   AutomationRunEntity,
@@ -187,8 +187,7 @@ export class WhatsappService {
   ) {}
 
   private async allowedAccountIds(me: any): Promise<string[] | null> {
-    if ([SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(me?.role?.name) ||
-      me?.whatsappAccessMode === WhatsappAccessMode.ALL) return null;
+    if (hasFullWhatsappAccountAccess(me)) return null;
     const adminId = tenantId(me);
     const rows = await this.accessRepo.find({
       where: { adminId, userId: me.id },
@@ -772,6 +771,7 @@ export class WhatsappService {
     me: any,
     payload: WhatsappUploadMediaPayload,
     accountId?: string,
+    options?: { sendSource?: MessageSendSource },
   ) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -790,7 +790,12 @@ export class WhatsappService {
       adminId,
       accountId,
     );
-    await this.assertAccountAccess(me, resolvedAccountId);
+    if (
+      options?.sendSource == null ||
+      options.sendSource === MessageSendSource.USER
+    ) {
+      await this.assertAccountAccess(me, resolvedAccountId);
+    }
     let filename = payload.filename;
     // Check cache if it's a URL
     if (url && !payload.file) {
@@ -1105,6 +1110,7 @@ export class WhatsappService {
             me,
             { url: mediaUrl },
             template.accountId,
+            { sendSource },
           );
           if (!media?.id) {
             throw new BadRequestException(

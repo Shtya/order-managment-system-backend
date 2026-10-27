@@ -17,7 +17,8 @@ import {
   UserWhatsappAccountAccessEntity,
   ConversationUserAccessEntity,
 } from "entities/whatsapp.entity";
-import { SystemRole, WhatsappAccessMode } from "entities/user.entity";
+import { WhatsappAccessMode } from "entities/user.entity";
+import { hasFullWhatsappAccountAccess } from "src/whatsapp/whatsapp-account-access";
 import { CustomerEntity } from "entities/customers.entity";
 import { CreateConversationDto } from "dto/whatsapp.dto";
 import { CustomerService } from "../customer/customer.service";
@@ -53,8 +54,7 @@ export class ConversationService {
   ) { }
 
   private async allowedAccountIds(me: any): Promise<string[] | null> {
-    if ([SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(me?.role?.name) ||
-      me?.whatsappAccessMode === WhatsappAccessMode.ALL) return null;
+    if (hasFullWhatsappAccountAccess(me)) return null;
     const adminId = tenantId(me);
     const rows = await this.accessRepo.find({
       where: { adminId, userId: me.id },

@@ -22,7 +22,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { FilterUtil } from "common/crud.service";
 import { ConversationEntity } from "entities/whatsapp.entity";
 import { TranslationService } from "common/translation.service";
-import { SystemRole, WhatsappAccessMode } from "entities/user.entity";
+import { hasFullWhatsappAccountAccess } from "../whatsapp-account-access";
 
 @Injectable()
 export class WhatsappAccountService {
@@ -40,8 +40,7 @@ export class WhatsappAccountService {
   ) {}
 
   private hasAllAccountAccess(me: any) {
-    return [SystemRole.ADMIN, SystemRole.SUPER_ADMIN].includes(me?.role?.name) ||
-      me?.whatsappAccessMode === WhatsappAccessMode.ALL;
+    return hasFullWhatsappAccountAccess(me);
   }
 
   private async allowedAccountIds(me: any): Promise<string[] | null> {
